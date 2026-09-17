@@ -29,3 +29,20 @@ STATS
 15 files changed, 3662 insertions(+), 2701 deletions(-)
 Git identity set repo-local: tester <tester@test> (was unset).
 Commit NOT pushed.
+
+[2026-09-18 03:26:39 IST / 2026-09-17 21:56:39 UTC]
+
+HOUSEKEEPING (no code changes)
+------------------------------
+- PLAN.md: ticked stale Item 1 checkbox (was left unchecked; work completed
+  in the first session per the loop log).
+- BENCH-DGA-FINDINGS.md: closed out the "Verified / not verified" list and
+  the "Remaining work" items 1-4. All were actually executed as Item 11
+  (Sep 17): full-corpus dga_bench.json committed, BENCH-DGA.md written,
+  test_bench_dga.py written (31 tests, re-verified green Sep 18), docs
+  (README/PRESENTATION/DECK-VS-CODE/PLAN) cite the benchmark. The findings
+  doc was stale, the work was not.
+- All 8 test suites re-verified green this session: fusion, tls_meta, quic,
+  dga_cnn, live, dashboard, bench_dga, dns_tunnel.
+- Policy change going forward: EVERY change on this branch is logged in this
+  file with a timestamp.

@@ -125,24 +125,27 @@ takes a seeded uniform subsample and its docstring records why.
 - ✅ `run.py` → byte-identical vs `alerts_rules.reference.jsonl`
 - ✅ `run.py --ml` → byte-identical vs `alerts_ml.reference.jsonl`
 - ✅ all five suites green (dga_cnn, tls_meta, fusion, quic, dashboard)
-- ❌ **full-corpus run not done** — `dga_bench.json` was removed rather than
-  leave a 20k subsample masquerading as a full result
-- ❌ `test_bench_dga.py` not written (needs a fixture corpus + no network)
-- ❌ nothing written up yet; `README.md`, `PRESENTATION.md`, `DECK-VS-CODE.md`
-  and `PLAN.md` still do not mention this benchmark
+- ✅ full-corpus run DONE (Sep 17, Item 11): `dga_bench.json` committed with
+  the full numbers, `BENCH-DGA.md` written from them. (History: the earlier
+  20k-subsample artifact was deleted rather than ship it as if full.)
+- ✅ `test_bench_dga.py` written: fixture corpus, no network — 31 unit tests,
+  all green (re-verified Sep 18).
+- ✅ written up: `README.md`, `PRESENTATION.md`, `DECK-VS-CODE.md` and
+  `PLAN.md` (Item 11) all cite the benchmark.
 
-## Remaining work
+## Remaining work — ALL CLOSED (Sep 18; executed as Item 11, see PLAN.md)
 
-1. Run the full benchmark, save `dga_bench.json`, then write `BENCH-DGA.md`
-   from its numbers (per-family table, FP, sweep).
+1. ~~Run the full benchmark, save `dga_bench.json`, then write `BENCH-DGA.md`
+   from its numbers (per-family table, FP, sweep).~~ — DONE.
 2. ~~Decide the quorum from the full sweep~~ — done (k=4, applied and tested).
-   Still needed: re-run the FULL sweep to confirm the knee at that scale, and
+   ~~Still needed: re-run the FULL sweep to confirm the knee at that scale, and
    update the README/PRESENTATION numbers that quote the old CNN-only demo
-   alert.
-3. `test_bench_dga.py`: fixture corpus in a temp dir, assert family attribution,
+   alert.~~ — DONE (full sweep re-run; README/PRESENTATION quote the
+   shipped-quorum numbers).
+3. ~~`test_bench_dga.py`: fixture corpus in a temp dir, assert family attribution,
    the uniform-vs-prefix sampling guarantee, and that `cnn_min_streak` defaults
-   to the config constant.
-4. Update the docs. The honest line for `PRESENTATION.md`:
+   to the config constant.~~ — DONE (31 tests).
+4. ~~Update the docs.~~ — DONE. The honest line for `PRESENTATION.md`:
    *"On an external corpus the rules miss conficker and pushdo entirely because
    their labels are 8 characters and our entropy gate has a 10-character floor.
    The CNN recovers them. It also had a 16% per-string false-positive rate on

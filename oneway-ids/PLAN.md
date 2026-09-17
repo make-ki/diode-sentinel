@@ -8,7 +8,7 @@ Target: 9:00 AM IST. Started 12:42 AM IST.
 
 ## Checklist
 
-- [ ] **Item 1 — TLS/JA4 detector (threat class d)**
+- [x] **Item 1 — TLS/JA4 detector (threat class d)**
   Parse TLS ClientHello from one-way pcap (metadata only, no decryption).
   Simplified JA4 fingerprint (a/b/c components per FoxIO spec, documented).
   Two detection modes: (i) known-bad fingerprint match (simulated threat-intel
