@@ -30,12 +30,18 @@ class FlowAssembler:
         f = self.active.get(key)
         if f is None:
             self.active[key] = dict(key=key, t0=t, t1=t, npkt=1,
-                                    nbytes=size, nsyn=int(is_syn))
+                                    nbytes=size, nsyn=int(is_syn),
+                                    packet_sizes=[size], packet_times=[t],
+                                    packet_directions=[1])
         else:
             f["npkt"] += 1
             f["nbytes"] += size
             f["t1"] = t
             f["nsyn"] += int(is_syn)
+            if len(f["packet_sizes"]) < 128:
+                f["packet_sizes"].append(size)
+                f["packet_times"].append(t)
+                f["packet_directions"].append(1)
 
     def emit_ready(self, t):
         """Yield flows idle for longer than the timeout."""
@@ -149,10 +155,11 @@ class StreamProcessor:
     """
 
     def __init__(self, sink, ml_scorer=None, tick_interval=TICK_INTERVAL,
-                 tls_state_path=None, dga_cnn=None):
+                 tls_state_path=None, dga_cnn=None, models567=None):
         self.sink = sink
         self.ml_scorer = ml_scorer
         self.dga_cnn = dga_cnn
+        self.models567 = models567
         self.tick_interval = tick_interval
 
         self.assembler = FlowAssembler()
@@ -169,6 +176,8 @@ class StreamProcessor:
         self.agg.register(self.ddos.on_window)
         self.agg.register(self.scan.on_window)
         self.agg.register(self.exfil.on_window)
+        if self.models567:
+            self.agg.register(self._score_model_window)
 
         self.npkt = self.ndns = self.ntls = 0
         self.last_flush_t = -1.0
@@ -208,6 +217,7 @@ class StreamProcessor:
                             if meta is not None:
                                 state["seen"] = True
                                 self.ntls += 1
+                                self.assembler.active[key]["tls_meta"] = meta
                                 self.tls.on_hello(t, src, dst, dport, meta)
                                 break
         elif proto == "udp":
@@ -222,13 +232,40 @@ class StreamProcessor:
                     qmeta = extract_quic_client_hello(payload)
                     if qmeta is not None:
                         self.ntls += 1
+                        flow = self.assembler.active.get(
+                            (src, sport, dst, dport, "udp"))
+                        if flow is not None:
+                            flow["tls_meta"] = qmeta
                         self.tls.on_hello(t, src, dst, dport, qmeta)
+
+    def _score_model_flow(self, flow):
+        if not self.models567:
+            return
+        for threat, confidence, evidence in self.models567.score_flow(flow):
+            src, _, dst, dport, proto = flow["key"]
+            self.sink.emit(flow["t1"], src, dst, dport, proto,
+                           threat, confidence, evidence)
+
+    def _score_model_window(self, window):
+        if not self.models567:
+            return
+        for src in window["pairs"]:
+            for threat, confidence, evidence in self.models567.score_scan(
+                    window, src):
+                self.sink.emit(window["t1"] - 1, src, "*", 0, "*",
+                               threat, confidence, evidence)
+        for (src, dst), total in window["pair_bytes"].items():
+            for threat, confidence, evidence in self.models567.score_exfil(
+                    window, src, dst, total):
+                self.sink.emit(window["t1"] - 1, src, dst, 0, "*",
+                               threat, confidence, evidence)
 
     def tick(self, t):
         if t - self.last_flush_t < self.tick_interval:
             return
         for f in self.assembler.emit_ready(t):
             self.beacon.on_flow(f)
+            self._score_model_flow(f)
             if self.ml_scorer:
                 self.ml_scorer.on_flow(f)
             k = f["key"]
@@ -241,6 +278,7 @@ class StreamProcessor:
     def finish(self):
         for f in self.assembler.finish():
             self.beacon.on_flow(f)
+            self._score_model_flow(f)
             if self.ml_scorer:
                 self.ml_scorer.on_flow(f)
             k = f["key"]
