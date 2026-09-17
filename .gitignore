@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# DGA benchmark corpus & caches (regenerated on demand, >100 MB)
+oneway-ids/.bench/
+
+# OS / editor
+.DS_Store
+*.swp

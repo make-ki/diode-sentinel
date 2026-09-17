@@ -1,0 +1,561 @@
+{
+  "config": {
+    "DGA_CNN_PROB": 0.9,
+    "limit": null,
+    "subsample": false
+  },
+  "generated_at": "2026-09-17 15:00 UTC",
+  "manifest": {
+    "author": "Andrey Abakumov (2017)",
+    "benign_lines": 1000000,
+    "benign_unique": 1000000,
+    "dga_lines": 801667,
+    "dga_unique": 694173,
+    "families": {
+      "conficker": 100000,
+      "cryptolocker": 100000,
+      "matsnu": 99995,
+      "pushdo": 91758,
+      "ramdo": 100000,
+      "rovnix": 99764,
+      "tinba": 100000,
+      "zeus": 1000
+    },
+    "fetched_at": "2026-09-17",
+    "files": {
+      "all_dga.txt": {
+        "bytes": 18806095,
+        "sha256": "7227eb098ec375f868a5d22edf173f9e8bcf61452e3d30cbdfae27fc46d32d56"
+      },
+      "all_legit.txt": {
+        "bytes": 17551796,
+        "sha256": "3018c84122ce1a506820d1469293713f1518b3a62be487323c5994c5700519a6"
+      }
+    },
+    "licence": "GPL-2.0",
+    "name": "andrewaeva/DGA",
+    "overlap": 4,
+    "repo": "https://github.com/andrewaeva/DGA",
+    "unattributed": 1656,
+    "wordlists_not_in_corpus": [
+      {
+        "domains": 1667,
+        "in_all_dga": 0,
+        "list": "goz.txt"
+      },
+      {
+        "domains": 1666,
+        "in_all_dga": 0,
+        "list": "new_goz.txt"
+      },
+      {
+        "domains": 9794,
+        "in_all_dga": 0,
+        "list": "opendns-random-domains.txt"
+      },
+      {
+        "domains": 10000,
+        "in_all_dga": 0,
+        "list": "opendns-top-domains.txt"
+      },
+      {
+        "domains": 2669,
+        "in_all_dga": 0,
+        "list": "others_dga.txt"
+      }
+    ]
+  },
+  "model": {
+    "bytes": 42540,
+    "path": "model_dga_cnn.npz",
+    "sha256": "256604f9a462f50bdac090a82082cf72db9c27f9bfec393493a2b2f45227a68b"
+  },
+  "per_string": {
+    "benign_cnn_fp_0.5": 0.165164,
+    "benign_cnn_fp_0.9": 0.116563,
+    "benign_n": 1000000,
+    "benign_rule_fp": 0.016847,
+    "families": {
+      "conficker": {
+        "cnn_tpr_0.5": 0.88551,
+        "cnn_tpr_0.9": 0.83456,
+        "median_len": 8.0,
+        "median_prob": 0.999999770833507,
+        "n": 100000,
+        "rule_tpr": 0.01854
+      },
+      "cryptolocker": {
+        "cnn_tpr_0.5": 0.98411,
+        "cnn_tpr_0.9": 0.9723,
+        "median_len": 13.0,
+        "median_prob": 0.9999999999986292,
+        "n": 100000,
+        "rule_tpr": 0.3681
+      },
+      "matsnu": {
+        "cnn_tpr_0.5": 0.2566928346417321,
+        "cnn_tpr_0.9": 0.1529776488824441,
+        "median_len": 26,
+        "median_prob": 0.029410414928402275,
+        "n": 99995,
+        "rule_tpr": 0.00536026801340067
+      },
+      "pushdo": {
+        "cnn_tpr_0.5": 0.4460973430109636,
+        "cnn_tpr_0.9": 0.34253144140020486,
+        "median_len": 8.0,
+        "median_prob": 0.2674917742828061,
+        "n": 91758,
+        "rule_tpr": 0.0
+      },
+      "ramdo": {
+        "cnn_tpr_0.5": 0.96552,
+        "cnn_tpr_0.9": 0.94241,
+        "median_len": 16.0,
+        "median_prob": 0.9999999999550873,
+        "n": 100000,
+        "rule_tpr": 0.01486
+      },
+      "rovnix": {
+        "cnn_tpr_0.5": 0.22561244537107575,
+        "cnn_tpr_0.9": 0.12578685698247866,
+        "median_len": 22.0,
+        "median_prob": 0.021583158772499382,
+        "n": 99764,
+        "rule_tpr": 0.006354997794795718
+      },
+      "tinba": {
+        "cnn_tpr_0.5": 0.98338,
+        "cnn_tpr_0.9": 0.96958,
+        "median_len": 12.0,
+        "median_prob": 0.9999999999914476,
+        "n": 100000,
+        "rule_tpr": 0.12705
+      },
+      "zeus": {
+        "cnn_tpr_0.5": 1.0,
+        "cnn_tpr_0.9": 1.0,
+        "median_len": 26.0,
+        "median_prob": 1.0,
+        "n": 1000,
+        "rule_tpr": 1.0
+      }
+    }
+  },
+  "quorum_sweep": {
+    "2": {
+      "benign_alerts": 722,
+      "benign_alerts_per_hour": 17.328,
+      "benign_queries_per_alert": 207.7562326869806,
+      "families_detected": 8,
+      "families_total": 8,
+      "per_family": {
+        "conficker": {
+          "alerts": 34,
+          "queries_to_first_alert": 3
+        },
+        "cryptolocker": {
+          "alerts": 176,
+          "queries_to_first_alert": 4
+        },
+        "matsnu": {
+          "alerts": 24,
+          "queries_to_first_alert": 90
+        },
+        "pushdo": {
+          "alerts": 31,
+          "queries_to_first_alert": 13
+        },
+        "ramdo": {
+          "alerts": 34,
+          "queries_to_first_alert": 2
+        },
+        "rovnix": {
+          "alerts": 20,
+          "queries_to_first_alert": 2
+        },
+        "tinba": {
+          "alerts": 42,
+          "queries_to_first_alert": 2
+        },
+        "zeus": {
+          "alerts": 100,
+          "queries_to_first_alert": 3
+        }
+      }
+    },
+    "3": {
+      "benign_alerts": 150,
+      "benign_alerts_per_hour": 3.6,
+      "benign_queries_per_alert": 1000.0,
+      "families_detected": 8,
+      "families_total": 8,
+      "per_family": {
+        "conficker": {
+          "alerts": 33,
+          "queries_to_first_alert": 4
+        },
+        "cryptolocker": {
+          "alerts": 175,
+          "queries_to_first_alert": 10
+        },
+        "matsnu": {
+          "alerts": 10,
+          "queries_to_first_alert": 302
+        },
+        "pushdo": {
+          "alerts": 25,
+          "queries_to_first_alert": 23
+        },
+        "ramdo": {
+          "alerts": 34,
+          "queries_to_first_alert": 3
+        },
+        "rovnix": {
+          "alerts": 7,
+          "queries_to_first_alert": 983
+        },
+        "tinba": {
+          "alerts": 41,
+          "queries_to_first_alert": 3
+        },
+        "zeus": {
+          "alerts": 100,
+          "queries_to_first_alert": 3
+        }
+      }
+    },
+    "4": {
+      "benign_alerts": 19,
+      "benign_alerts_per_hour": 0.456,
+      "benign_queries_per_alert": 7894.736842105263,
+      "families_detected": 7,
+      "families_total": 8,
+      "per_family": {
+        "conficker": {
+          "alerts": 33,
+          "queries_to_first_alert": 21
+        },
+        "cryptolocker": {
+          "alerts": 172,
+          "queries_to_first_alert": 10
+        },
+        "matsnu": {
+          "alerts": 2,
+          "queries_to_first_alert": 644
+        },
+        "pushdo": {
+          "alerts": 18,
+          "queries_to_first_alert": 164
+        },
+        "ramdo": {
+          "alerts": 34,
+          "queries_to_first_alert": 8
+        },
+        "rovnix": {
+          "alerts": 0,
+          "queries_to_first_alert": null
+        },
+        "tinba": {
+          "alerts": 41,
+          "queries_to_first_alert": 4
+        },
+        "zeus": {
+          "alerts": 100,
+          "queries_to_first_alert": 3
+        }
+      }
+    },
+    "5": {
+      "benign_alerts": 3,
+      "benign_alerts_per_hour": 0.07200000000000001,
+      "benign_queries_per_alert": 50000.0,
+      "families_detected": 6,
+      "families_total": 8,
+      "per_family": {
+        "conficker": {
+          "alerts": 32,
+          "queries_to_first_alert": 22
+        },
+        "cryptolocker": {
+          "alerts": 171,
+          "queries_to_first_alert": 10
+        },
+        "matsnu": {
+          "alerts": 0,
+          "queries_to_first_alert": null
+        },
+        "pushdo": {
+          "alerts": 9,
+          "queries_to_first_alert": 165
+        },
+        "ramdo": {
+          "alerts": 34,
+          "queries_to_first_alert": 9
+        },
+        "rovnix": {
+          "alerts": 0,
+          "queries_to_first_alert": null
+        },
+        "tinba": {
+          "alerts": 40,
+          "queries_to_first_alert": 5
+        },
+        "zeus": {
+          "alerts": 100,
+          "queries_to_first_alert": 3
+        }
+      }
+    },
+    "6": {
+      "benign_alerts": 2,
+      "benign_alerts_per_hour": 0.048,
+      "benign_queries_per_alert": 75000.0,
+      "families_detected": 6,
+      "families_total": 8,
+      "per_family": {
+        "conficker": {
+          "alerts": 32,
+          "queries_to_first_alert": 23
+        },
+        "cryptolocker": {
+          "alerts": 169,
+          "queries_to_first_alert": 10
+        },
+        "matsnu": {
+          "alerts": 0,
+          "queries_to_first_alert": null
+        },
+        "pushdo": {
+          "alerts": 3,
+          "queries_to_first_alert": 1844
+        },
+        "ramdo": {
+          "alerts": 33,
+          "queries_to_first_alert": 10
+        },
+        "rovnix": {
+          "alerts": 0,
+          "queries_to_first_alert": null
+        },
+        "tinba": {
+          "alerts": 40,
+          "queries_to_first_alert": 26
+        },
+        "zeus": {
+          "alerts": 100,
+          "queries_to_first_alert": 3
+        }
+      }
+    },
+    "8": {
+      "benign_alerts": 2,
+      "benign_alerts_per_hour": 0.048,
+      "benign_queries_per_alert": 75000.0,
+      "families_detected": 5,
+      "families_total": 8,
+      "per_family": {
+        "conficker": {
+          "alerts": 31,
+          "queries_to_first_alert": 25
+        },
+        "cryptolocker": {
+          "alerts": 160,
+          "queries_to_first_alert": 10
+        },
+        "matsnu": {
+          "alerts": 0,
+          "queries_to_first_alert": null
+        },
+        "pushdo": {
+          "alerts": 0,
+          "queries_to_first_alert": null
+        },
+        "ramdo": {
+          "alerts": 32,
+          "queries_to_first_alert": 35
+        },
+        "rovnix": {
+          "alerts": 0,
+          "queries_to_first_alert": null
+        },
+        "tinba": {
+          "alerts": 39,
+          "queries_to_first_alert": 56
+        },
+        "zeus": {
+          "alerts": 100,
+          "queries_to_first_alert": 3
+        }
+      }
+    }
+  },
+  "stream": {
+    "benign_host": {
+      "alerts": 120,
+      "alerts_per_hour": 0.432,
+      "first_alert_evidence": {
+        "cnn_positive_streak": 4,
+        "detector_tier": "tier2_cnn_only",
+        "dga_cnn_prob": 0.9742,
+        "label_length": 9,
+        "model": "char-cnn (numpy, family-held-out)",
+        "note": "label is lexical (the entropy gate did not fire); the character CNN flagged its morphology instead",
+        "qname_label": "djvu-info",
+        "why": "character-sequence model scores this qname as machine-generated even though its entropy and vowel/digit profile look innocuous"
+      },
+      "hours": 277.77777777777777,
+      "queries": 1000000,
+      "tiers": {
+        "tier1_lexical": 5,
+        "tier1_lexical+cnn_confirmed": 9,
+        "tier2_cnn_only": 106
+      },
+      "trigger_labels": [
+        "djvu-info",
+        "daddyhobby",
+        "xk168",
+        "najdvoice",
+        "profiwerkzeug24",
+        "hkfoodcloud",
+        "swim2000",
+        "202080",
+        "dcsplus642-my",
+        "vmbiz",
+        "nadji",
+        "transilvlad",
+        "duhocmyvic",
+        "2daytalk",
+        "pquweb",
+        "am5200",
+        "search101sweets",
+        "mohajertc",
+        "3333",
+        "zizigames",
+        "oqmhandbook",
+        "sms4send",
+        "hnubbs",
+        "bbcgoodfoodshowlondon",
+        "oranjeexpress"
+      ]
+    },
+    "mixed_host": {
+      "alerts": 41,
+      "ambiguous_labels": 42,
+      "dga_share": 0.05,
+      "false_positive": 34,
+      "precision": 0.17073170731707318,
+      "queries": 200000,
+      "tiers": {
+        "tier1_lexical": 5,
+        "tier1_lexical+cnn_confirmed": 1,
+        "tier2_cnn_only": 35
+      },
+      "true_positive": 7,
+      "unscoreable": 0
+    },
+    "per_family_host": {
+      "conficker": {
+        "alerts": 826,
+        "queries": 100000,
+        "queries_to_first_alert": 11,
+        "tiers": {
+          "tier1_lexical+cnn_confirmed": 11,
+          "tier2_cnn_only": 815
+        }
+      },
+      "cryptolocker": {
+        "alerts": 3846,
+        "queries": 100000,
+        "queries_to_first_alert": 4,
+        "tiers": {
+          "tier1_lexical": 10,
+          "tier1_lexical+cnn_confirmed": 3079,
+          "tier2_cnn_only": 757
+        }
+      },
+      "matsnu": {
+        "alerts": 30,
+        "queries": 99995,
+        "queries_to_first_alert": 1488,
+        "tiers": {
+          "tier2_cnn_only": 30
+        }
+      },
+      "pushdo": {
+        "alerts": 421,
+        "queries": 91758,
+        "queries_to_first_alert": 12,
+        "tiers": {
+          "tier2_cnn_only": 421
+        }
+      },
+      "ramdo": {
+        "alerts": 828,
+        "queries": 100000,
+        "queries_to_first_alert": 11,
+        "tiers": {
+          "tier2_cnn_only": 828
+        }
+      },
+      "rovnix": {
+        "alerts": 18,
+        "queries": 99764,
+        "queries_to_first_alert": 2697,
+        "tiers": {
+          "tier2_cnn_only": 18
+        }
+      },
+      "tinba": {
+        "alerts": 1000,
+        "queries": 100000,
+        "queries_to_first_alert": 8,
+        "tiers": {
+          "tier1_lexical": 1,
+          "tier1_lexical+cnn_confirmed": 181,
+          "tier2_cnn_only": 818
+        }
+      },
+      "zeus": {
+        "alerts": 100,
+        "queries": 1000,
+        "queries_to_first_alert": 3,
+        "tiers": {
+          "tier1_lexical+cnn_confirmed": 100
+        }
+      }
+    }
+  },
+  "sweep": {
+    "0.5": {
+      "fp_count": 165164,
+      "fpr": 0.165164,
+      "tpr": 0.6815153996219587
+    },
+    "0.7": {
+      "fp_count": 143596,
+      "fpr": 0.143596,
+      "tpr": 0.6579708512570811
+    },
+    "0.8": {
+      "fp_count": 131838,
+      "fpr": 0.131838,
+      "tpr": 0.6440101831435185
+    },
+    "0.9": {
+      "fp_count": 116563,
+      "fpr": 0.116563,
+      "tpr": 0.624043886287268
+    },
+    "0.95": {
+      "fp_count": 104734,
+      "fpr": 0.104734,
+      "tpr": 0.6072515187352802
+    },
+    "0.99": {
+      "fp_count": 84116,
+      "fpr": 0.084116,
+      "tpr": 0.5736465675210861
+    }
+  }
+}

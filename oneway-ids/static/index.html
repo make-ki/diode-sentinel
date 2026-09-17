@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>One-Way NIDS — SOC Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='19'>%F0%9F%9B%A1</text></svg>">
+<link rel="stylesheet" href="/static/vendor/daisyui.css">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+
+<div class="ambient" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3l7 3v5.5c0 4.3-2.9 8.2-7 9.5-4.1-1.3-7-5.2-7-9.5V6l7-3z"/>
+        <path d="M12 9v4"/><path d="M12 16.2h.01"/>
+      </svg>
+    </span>
+    <div class="brand-text">
+      <h1>One-Way <span>NIDS</span></h1>
+      <p>PS-26145 · unidirectional traffic threat detection · read-only enclave feed</p>
+    </div>
+  </div>
+
+  <div class="topbar-actions">
+    <span class="live-pill" id="live-pill">
+      <i class="live-dot"></i><span id="live-label">connecting…</span>
+    </span>
+    <span class="clock" id="clock">--:--:--</span>
+    <button class="btn btn-xs btn-ghost" id="pause-btn" type="button">Pause</button>
+    <button class="btn btn-xs btn-ghost" id="refresh-btn" type="button">Refresh</button>
+    <button class="btn btn-xs btn-ghost" id="theme-btn" type="button">Light</button>
+  </div>
+</header>
+
+<main class="shell">
+
+  <section class="sensor-strip" id="sensor-strip" aria-label="sensor status"></section>
+
+  <section class="kpis" id="kpis" aria-label="alert summary"></section>
+
+  <section class="grid grid-charts">
+    <article class="panel">
+      <header class="panel-head">
+        <h2>Alert timeline</h2>
+        <span class="panel-hint" id="timeline-hint">severity per time bucket</span>
+      </header>
+      <div class="chart-box"><canvas id="timeline-chart"></canvas></div>
+    </article>
+    <article class="panel">
+      <header class="panel-head">
+        <h2>Threat mix</h2>
+        <span class="panel-hint" id="mix-hint">by threat class</span>
+      </header>
+      <div class="chart-box chart-box-ring"><canvas id="mix-chart"></canvas></div>
+    </article>
+  </section>
+
+  <section class="grid grid-stream">
+    <article class="panel">
+      <header class="panel-head">
+        <h2>Alert stream</h2>
+        <span class="panel-hint" id="stream-hint">tailing alerts.jsonl</span>
+      </header>
+      <div class="filters" id="filters"></div>
+      <div class="table-wrap">
+        <table class="table table-sm table-pin-rows" id="alert-table">
+          <thead>
+            <tr>
+              <th>time</th><th>severity</th><th>threat class</th>
+              <th>src → dst</th><th>conf</th><th>signal</th>
+            </tr>
+          </thead>
+          <tbody id="alert-rows"></tbody>
+        </table>
+      </div>
+    </article>
+
+    <aside class="side">
+      <article class="panel">
+        <header class="panel-head">
+          <h2>Top talkers</h2>
+          <span class="panel-hint">offending sources</span>
+        </header>
+        <div class="entity-list" id="top-sources"></div>
+      </article>
+      <article class="panel">
+        <header class="panel-head">
+          <h2>PS-26145 coverage</h2>
+          <span class="panel-hint" id="coverage-hint"></span>
+        </header>
+        <div class="coverage" id="coverage"></div>
+      </article>
+    </aside>
+  </section>
+
+  <footer class="footer">
+    <span>One-Way NIDS prototype · alerts are standardized JSONL · evidence shown verbatim, never post-processed</span>
+    <span id="footer-version"></span>
+  </footer>
+</main>
+
+<dialog class="modal" id="detail-modal">
+  <div class="modal-box detail-box">
+    <header class="detail-head">
+      <div>
+        <span class="badge" id="detail-sev">—</span>
+        <h3 id="detail-class">—</h3>
+      </div>
+      <form method="dialog"><button class="btn btn-xs btn-ghost" type="submit" aria-label="Close">✕</button></form>
+    </header>
+    <p class="detail-why" id="detail-why"></p>
+    <dl class="detail-meta" id="detail-meta"></dl>
+    <h4 class="detail-sub">evidence</h4>
+    <pre class="detail-evidence" id="detail-evidence"></pre>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<script src="/static/vendor/chart.umd.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
