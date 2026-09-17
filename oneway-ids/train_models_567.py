@@ -5,7 +5,7 @@ Usage:
     python train_models_567.py --pcap traffic.pcap --out models567
     python run.py --models-567 models567/manifest.json
 
-The split is temporal: flows/windows before t=420 train the models and later
+The split is temporal: flows/windows before t=500 train the models and later
 traffic evaluates them. The rule detectors remain enabled during serving.
 """
 import argparse
