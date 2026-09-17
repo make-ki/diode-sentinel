@@ -10,9 +10,10 @@ label_flow(); known noise documented there.
 """
 import time
 
-from config import ATTACK_HOST_ROLES, VICTIM_IP, FLOOD_WINDOW, \
-    SCAN_TARGET_IP, EXFIL_DST_IP, C2_IPS, ML_PROBA_THRESHOLD, \
-    ML_REAlert_SECS
+from config import (ATTACK_HOST_ROLES, VICTIM_IP, FLOOD_WINDOW,
+                    SCAN_TARGET_IP, EXFIL_DST_IP, C2_IPS,
+                    ML_PROBA_THRESHOLD, ML_REAlert_SECS,
+                    DNS_TUNNEL_HOST, DNS_TUNNEL_DOMAIN)
 
 FEATURE_NAMES = ["npkt", "nbytes", "duration", "nsyn", "bytes_per_pkt",
                  "pkts_per_sec", "is_udp", "dport", "sport_priv",
@@ -49,6 +50,8 @@ def label_flow(src, dst, dport, proto, t0) -> int:
         return 1
     if src in ATTACK_HOST_ROLES:
         if src == "10.0.0.9" and proto == "udp" and dport == 53:
+            return 1
+        if src == DNS_TUNNEL_HOST and proto == "udp" and dport == 53:
             return 1
         if src == "10.0.0.11" and dst == EXFIL_DST_IP:
             return 1

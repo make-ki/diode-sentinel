@@ -38,7 +38,9 @@ pipeline.py         FlowAssembler (5-tuple, idle timeout)
    │      DDoS        window rate + src-IP Shannon entropy + SYN ratio
    │      beaconing   inter-flow IAT mean/CV per (src,dst,dport),
    │                  evidence-scaled CV gate (0.15 small-n / 0.25 n>=10)
-   │      DGA/DNS     char entropy + vowel/digit lexical profile + streak
+   │      DGA/DNS     char entropy + vowel/digit lexical profile + streak,
+│                  + DNS tunnelling (dns_tunnel.py): wire-format qtype parse,
+│                  encoded-qname streak + TXT/NULL volume + per-zone rate
    │      recon/scan  per-src fan-out cardinality + dominant-dst classifier
    │      exfil       per-(src,dst) cumulative bytes vs source baseline,
    │                  pair-age guard
@@ -69,7 +71,7 @@ dashboard.py        zero-dependency live SOC dashboard (stdlib HTTP server;
 |---|---|---|
 | (a) DDoS / SYN floods / spoofed floods | window rate + entropy | pkt rate, src-IP entropy collapse, SYN ratio |
 | (b) C2 beaconing | IAT periodicity | inter-flow arrival regularity (CV), no request/response pairing |
-| (c) DGA / DNS tunnelling | lexical + behavioral | qname entropy, vowel/digit profile, streaks |
+| (c) DGA / DNS tunnelling | lexical + behavioral | qname entropy, vowel/digit profile, streaks; tunnelling: encoded-label streak, TXT/NULL-record volume, per-zone query rate (dnscat2/iodine shapes) |
 | (d) encrypted-session malware | JA4/JA3 + novelty | ClientHello metadata over **TLS and QUIC** (QUIC Initials are decryptable one-way — keys are public) |
 | (e) recon / port scan | fan-out | distinct (dst,port) pairs per src per window |
 | (f) data exfiltration | volume + novelty | cumulative bytes to young (src,dst) pairs vs baseline |
@@ -89,6 +91,8 @@ live_source.py     live ingest -> the SAME packet tuples as pcap_reader:
 pipeline.py        FlowAssembler + WindowAggregator + StreamProcessor
                    (one detection path, shared by replay and live)
 detectors.py       6 detectors + FusionEngine + AlertSink
+dns_tunnel.py      DNS tunnelling detector: DNS wire qtype/label parse,
+                   three mechanisms (encoded streak / record volume / rate)
 tls_meta.py        ClientHello parser, JA4/JA3, record reassembly,
                    TCP seq tracker (retransmit/gap safe)
 hello_profiles.py  synthetic TLS stack profiles (single source of truth
@@ -110,6 +114,9 @@ test_dashboard.py  82 checks: API contracts, filters, timeline bucketing,
                    static serving, path-traversal guard, live tail of a
                    half-written line, and asset integrity (no CDN, every
                    class resolves, every element id exists)
+test_dns_tunnel.py 56 checks: wire parser, encoded-label predicate vs the
+                   measured benign corpus, quorum/dedupe semantics, benign
+                   FP guards, pipeline integration
 test_dga_cnn.py    49 checks: encoder, finite-difference gradient check on
                    the hand-written backprop, training, save/load, held-out
                    generalisation, and detector tier boundaries
@@ -142,6 +149,7 @@ python3 -m venv .venv && .venv/bin/pip install scapy dpkt lightgbm cryptography
 .venv/bin/python test_tls_meta.py        # 42 unit tests (TLS/JA4)
 .venv/bin/python test_fusion.py          # 15 unit tests (fusion)
 .venv/bin/python test_quic.py            # 10 unit tests (QUIC)
+.venv/bin/python test_dns_tunnel.py      # 56 unit tests (DNS tunnelling)
 .venv/bin/python test_live.py            # 64 unit tests (live capture path)
 .venv/bin/python train_dga_cnn.py        # train the DGA character CNN
 .venv/bin/python test_dga_cnn.py         # 49 unit tests (CNN + backprop)

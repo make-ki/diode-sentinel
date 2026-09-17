@@ -10,6 +10,7 @@ from collections import Counter, defaultdict
 from config import WINDOW, IDLE_TIMEOUT, TICK_INTERVAL, TLS_PORTS
 from detectors import (DDosDetector, ScanDetector, ExfilDetector,
                        BeaconDetector, DGADetector, TlsDetector, FusionEngine)
+from dns_tunnel import DnsTunnelDetector, parse_qtype
 from tls_meta import TlsRecordReassembler, SeqTracker, parse_client_hello
 from quic_meta import is_quic_initial, extract_quic_client_hello
 
@@ -163,6 +164,7 @@ class StreamProcessor:
         self.exfil = ExfilDetector(sink)
         self.beacon = BeaconDetector(sink)
         self.dga = DGADetector(sink, cnn=dga_cnn)
+        self.dns_tunnel = DnsTunnelDetector(sink)
         self.tls = TlsDetector(sink, state_path=tls_state_path)
         self.fusion = FusionEngine(sink)
         sink.subscribe(self.fusion.on_alert)
@@ -211,9 +213,19 @@ class StreamProcessor:
                                 self.tls.on_hello(t, src, dst, dport, meta)
                                 break
         elif proto == "udp":
-            if dport == 53 and qname:
-                self.dga.on_dns(t, src, qname)
-                self.ndns += 1
+            if dport == 53:
+                if qname:
+                    self.dga.on_dns(t, src, qname)
+                    self.ndns += 1
+                # ---- DNS tunnelling hook (record-type/length/volume half) ----
+                # Parses the wire format from the payload the tuple already
+                # carries; qname above stays the lexical gate's input, so a
+                # query that fails DNS wire parsing feeds neither detector.
+                if payload:
+                    parsed = parse_qtype(payload)
+                    if parsed is not None:
+                        qtype, labels = parsed
+                        self.dns_tunnel.on_query(t, src, qtype, labels)
             # ---- QUIC Initial hook: JA4 from the QUIC crypto stream ----
             if dport in TLS_PORTS and payload and is_quic_initial(payload):
                 qkey = (src, sport, dst, dport)

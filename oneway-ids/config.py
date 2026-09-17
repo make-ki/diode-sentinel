@@ -91,6 +91,7 @@ ATTACK_HOST_ROLES = {
     "10.0.0.9":  "botnet_dga",
     "10.0.0.11": "exfil",
     "10.0.0.13": "scanner",
+    "10.0.0.17": "dns_tunnel",
 }
 VICTIM_IP      = "203.0.113.10"   # spoofed SYN-flood target
 FLOOD_WINDOW   = (300.0, 320.0)
@@ -100,6 +101,34 @@ C2_IPS         = {"198.51.100.23", "198.51.100.99"}
 ML_MODEL_PATH  = os.path.join(PROJECT_DIR, "model_ml.txt")
 ML_PROBA_THRESHOLD = 0.95
 ML_REAlert_SECS    = 60.0
+
+# ---- DNS tunnelling detector (PS class c, second half) --------------------
+# The PS asks for "Entropy/n-gram analysis of DNS query names, PLUS
+# query-length and record-type anomalies". The DGA detector owns the lexical
+# half; this owns the record-type/length/volume half: a channel that carries
+# DATA inside qnames (or hides it in TXT/NULL queries) -- dnscat2, iodine,
+# DNScat-style C2 channels.
+#
+# Discriminators are set against THIS repo's measured benign profiles, not
+# guessed (see PLAN.md Item 12):
+#   longest first-label the benign generator emits ......... 11  (CDN labels)
+#   the DGA attack labels .................................. 14  (lexical path)
+#   entropy of the CDN labels .............................. ~2.5 bits
+# so a data label must be LONGER than anything benign/DGA-shaped and denser
+# than anything a brand would serve:
+DNS_TUNNEL_LABEL_MIN_LEN = 20      # data-carrying label length floor
+DNS_TUNNEL_MIN_ENTROPY   = 3.5     # base32/base64 payload density
+DNS_TUNNEL_MIN_STREAK    = 4       # consecutive encoded labels from one src
+DNS_TUNNEL_MIN_QTYPE_RATIO = 0.60  # >=60% TXT/NULL queries => data channel
+DNS_TUNNEL_MIN_QPS       = 2.0     # queries/s sustained => volume anomaly
+DNS_TUNNEL_QPS_WINDOW    = 30.0    # trailing window for qtype/volume ratios
+DNS_TUNNEL_MIN_WINDOW_QUERIES = 8  # min evidence before window paths score
+DNS_TUNNEL_REALERT_SECS  = 120.0   # dedupe per (src, mechanism)
+
+# Ground truth (ml_tier labels + generator): the compromised tunnel host and
+# the authoritative domain it exfiltrates through.
+DNS_TUNNEL_HOST   = "10.0.0.17"    # INTERNAL[15]
+DNS_TUNNEL_DOMAIN = "tunnel.example.com"
 
 # ---- DGA character CNN (Tier-2 confirmer on the DNS path) -----------------
 # The Tier-1 lexical rules stay exactly as they are; the CNN is an ADDITIONAL,

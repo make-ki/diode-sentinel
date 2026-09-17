@@ -519,3 +519,76 @@ unavailable — documented limitation, exactly the diode constraint.
   per-source query-rate weighting, which the one-way feed can observe); the
   stream scenarios run at 1 qps through the detector directly, not through
   pcap ingest.
+
+## Sep 18 -- ITEM 12: DNS tunnelling detector (closes the class-(c) gap)
+
+- Motivation: the PS splits class (c) into "Entropy/n-gram analysis of DNS
+  query names" (the DGA detector + CNN, done) "PLUS query-length and
+  record-type anomalies" (NOT done -- the honest gap two reviews flagged).
+  qtype was never parsed anywhere in the read path; a dnscat2/iodine channel
+  was invisible unless its labels happened to trip the lexical gate, which
+  they need not (iodine uses NULL records, dnscat2 labels are lexical-looking
+  base32 with a short session prefix).
+- Zero schema change by design: qtype/labels are parsed from the DNS wire
+  format in the payload the packet tuple ALREADY carries (dns_tunnel.parse_qtype,
+  called from pipeline.py's UDP hook). pcap_reader/live_source untouched =>
+  the dpkt/scapy parity surface and every recorded capture stay byte-identical,
+  the same reasoning as the QUIC hook. Old-pcap regression first: replay of
+  the pre-tunnel pcap is byte-identical against the reference BEFORE any new
+  traffic was generated.
+- Discriminators are MEASURED against this repo's own benign corpus, not
+  guessed: longest benign first label = 11 (CDN labels), DGA labels = 14, CDN
+  label entropy ~2.5-3.0. So data-carrying labels are >=20 chars (structurally
+  above both) AND >=3.5 bits (base32 density; hex tops out at 4.0, English
+  compounds ~2.5-3.4). looks_encoded() also demands >=95% unreserved-32
+  alphabet share.
+- Three mechanisms, one detector: (1) encoded-qname STREAK, quorum 4, benign
+  label resets; (2) data-record volume: >=60% TXT/NULL share at >=2 qps
+  sustained (both gates ANDed -- sparse TXT service discovery stays silent);
+  (3) per-zone rate anomaly >=2 qps to ONE <src,zone> pair, split across
+  zones = resolver behaviour, silent. Confidence bands: encoded 0.72-0.95,
+  qtype 0.60-0.90, rate 0.55-0.85 -- never critical alone, so a tunnel verdict
+  must FUSE with beacon/exfil to reach critical (same policy as the CNN cap).
+- BUG 1 (generator, caught by e2e): first draft was uniform-jittered 2qps
+  continuous -- the tunnel series was ROBOTIC (CV 0.035) so the beacon
+  detector fired ~95 re-alerts on it, and the endless encoded streak kept the
+  DGA 3-streak alive for ~95 re-alerts more. Both detectors were RIGHT: that
+  traffic really is periodic and really is a streak. The scenario now models
+  how dnscat2 actually behaves: exponential IATs (RTT-dominated, CV~1.0)
+  and short benign 'ping' keepalives between 40-query data bursts 140s apart
+  -- which also resets the DGA streak, as a real channel does. Lesson: a new
+  attack scenario must be tuned against the OTHER detectors' thresholds too;
+  a scenario that fires everything is a generator artifact, not coverage.
+- BUG 2 (dedupe semantics, caught by tests): a wall-interval refire on the
+  encoded mechanism (REALERT_SECS) re-alerted a CONTINUING streak every 120s
+  on identical evidence, while eating the legitimately RE-ARMED second burst
+  (streak died at the keepalive, so the next burst is a new incident but the
+  wall clock said 'too soon'). Fix: encoded mechanism is fire-once-per-streak
+  (armed -> disarmed by a benign label); the wall interval stays only for the
+  two rate-shape mechanisms, whose dedupe has no streak boundary.
+- BUG 3 (test-side): my 'benign pipeline' host queried at exact 5.000s steps
+  -- CV=0 -- and the BEACON detector correctly flagged it. A real resolver is
+  Poisson; the test now is. Also: _prune makes the trailing window forget, so
+  an aged burst cannot sustain a rate alert -- asserted mechanically, not
+  assumed.
+- Verification: 56 new checks (parser incl. response/truncation/pointer
+  rejection, the encoded predicate vs 12 benign corpus labels, quorum/reset/
+  re-arm semantics, qtype-ratio AND qps gates, zone-split guard, window
+  aging, benign corpus zero-alert, pipeline integration, e2e evidence
+  schema). 295 pre-existing checks across seven suites all green. Old pcap
+  byte-identical; new pcap: 6 tunnel alerts (one encoded-streak per burst,
+  plus qtype/rate mechanisms on the busiest burst) ALL on 10.0.0.17; MESSY=1
+  run: zero benign tunnel FPs with the benign TXT lookups + CDN labels + IoT
+  telemetry in the stream; fusion correlates dns_tunneling with dga_domain
+  on the tunnel host (multi_signal_fusion). --parity IDENTICAL.
+- Dashboard: dns_tunneling maps to PS class c in CLASS_TO_PS (coverage panel
+  unchanged, six classes). ml_tier.label_flow labels the tunnel host's DNS
+  flows malicious (ground truth), so --ml flags it in the test window too.
+- Honest gaps remaining: tunnelling through OTHER protocols (NPN, HTTP
+  LSUB-sized queries over DoH) is out of scope for a one-way feed that sees
+  UDP/53; response-side confirmation (large TXT answers) is structurally
+  invisible one-way and stated in every alert's evidence note; the rate
+  mechanisms' thresholds are tuned for the synthetic baseline and inherit the
+  benchmark's 1-qps assumption -- a busy resolver host needs per-site
+  baselining before these gates mean anything (same UEBA-shaped gap as the
+  exfil feedback loop).

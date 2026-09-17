@@ -15,13 +15,15 @@ Contents (10 min sim time, ~13k packets):
     - SYN flood, spoofed sources      t in [300, 320)  -> 203.0.113.10:443
     - C2 beaconing every 5s +- jitter t in [0, 600)    -> 198.51.100.23:443
     - DGA domain queries every 10s    t in [0, 600)
+    - DNS tunnelling (dnscat2-style)  t in [120, 600)  -> tunnel.example.com
     - Vertical port scan (500 ports)  t in [400, 415)  -> 203.0.113.20
     - Data exfiltration (2.8 MB)      t in [480, 540)  -> 45.33.32.156:8443
 """
 import random
 from scapy.all import Ether, IP, TCP, UDP, DNS, DNSQR, Raw, wrpcap
 
-from config import SIM_START, DURATION, PCAP_PATH, BASELINE_SECONDS
+from config import (SIM_START, DURATION, PCAP_PATH, BASELINE_SECONDS,
+                    DNS_TUNNEL_HOST, DNS_TUNNEL_DOMAIN)
 from hello_profiles import browser_hello, updater_hello, malware_hello
 
 random.seed(42)
@@ -63,10 +65,10 @@ def _udp(t, src, dst, sport, dport, size):
                    UDP(sport=sport, dport=dport) / Raw(payload)))
 
 
-def _dns_query(t, src, qname):
+def _dns_query(t, src, qname, qtype="A"):
     events.append((t, Ether() / IP(src=src, dst=DNS_SERVER) /
                    UDP(sport=_sport(), dport=53) /
-                   DNS(rd=1, qd=DNSQR(qname=qname))))
+                   DNS(rd=1, qd=DNSQR(qname=qname, qtype=qtype))))
 
 
 # ---------------- TLS profile assignment (stable per host) ----------------
@@ -108,6 +110,13 @@ for host in INTERNAL:
     while t < DURATION:
         _dns_query(t, host, random.choice(BENIGN_DOMAINS) + ".")
         t += random.expovariate(1 / 20.0)
+
+# a few benign TXT lookups (service discovery: real, but sparse and short)
+for host in INTERNAL[2:8]:
+    for k in range(3):
+        _dns_query(random.uniform(0, DURATION), host,
+                   random.choice(["_dmarc", "_domainkey", "_acme-challenge"])
+                   + "." + random.choice(BENIGN_DOMAINS) + ".", qtype="TXT")
 
 # ---------------- benign NTP keepalive (allowlisted, periodic) ----------------
 for i in range(int(DURATION / 30)):
@@ -162,6 +171,42 @@ for i in range(int((DURATION - 350) / 30)):
     sp = _sport()
     _tcp(t, INTERNAL[7], C2_ALT, sp, 443, 60, "S")
     _tcp(t + 0.01, INTERNAL[7], C2_ALT, sp, 443, 120, "PA")
+
+# ---------------- ATTACK 2c: DNS tunnelling (dnscat2-style, t=120+) -------
+# A compromised host runs a DNS C2 channel: data is base32-encoded, chunked
+# into a long first label (dnscat2 frames subdomains exactly this way), and
+# queried as TXT against ONE authoritative zone. Realistic cadence, learned
+# the hard way (first draft was uniform-jittered 2qps continuous and BOTH
+# other DNS-path detectors fired ~95 re-alerts on it):
+#   - keepalives (short 'ping' labels, benign to every lexical gate) between
+#     bursts -- which also RESET the DGA streak, as a real channel does;
+#   - exponential IATs (RTT-dominated response waits), NOT uniform jitter --
+#     CV~1.0, so the beacon detector correctly ignores it; a robotic 2qps
+#     series IS legitimately periodic and beacon would be right to fire;
+#   - three data bursts of 40 queries at ~3qps (250B chunks), 140s apart
+#     (outside the tunnel detector's 120s dedupe, so each burst is scored).
+# Exercises the record-type/length/volume half of PS class (c) that the
+# lexical gate cannot classify: the tunnel labels DO trip the DGA gate
+# (they are high-entropy strings -- expected cross-signal, fusion
+# correlates the two), but the dga_domain class cannot tell you it was a
+# tunnel; this detector names the mechanism.
+import base64 as _b64
+TUNNEL_HOST, TUNNEL_DOMAIN = DNS_TUNNEL_HOST, DNS_TUNNEL_DOMAIN
+TUNNEL_START, TUNNEL_BURSTS, TUNNEL_BURST_N = 120.0, (120.0, 260.0, 400.0), 40
+# keepalives: short first label, TXT, exponential inter-arrival (mean 10s)
+_t = TUNNEL_START
+while _t < DURATION - 5:
+    _dns_query(_t, TUNNEL_HOST, f"ping.s{_t:04.0f}.{TUNNEL_DOMAIN}.",
+               qtype="TXT")
+    _t += random.expovariate(1 / 10.0)
+# data bursts: long base32 first label, TXT, exponential IATs (mean 1/3 s)
+for _t0 in TUNNEL_BURSTS:
+    for _i in range(TUNNEL_BURST_N):
+        t = _t0 + random.expovariate(3.0)
+        chunk = _b64.b32encode(bytes([random.randrange(256)
+                                      for _ in range(24)])).decode().lower()
+        _dns_query(min(t, DURATION - 1), TUNNEL_HOST,
+                   f"{chunk[:24]}.s{_t0:04.0f}.{TUNNEL_DOMAIN}.", qtype="TXT")
 
 # ---------------- ATTACK 3: SYN flood, spoofed sources ----------------
 for _ in range(3000):

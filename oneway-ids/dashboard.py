@@ -52,6 +52,7 @@ CLASS_TO_PS = {
     "ddos_syn_flood":          "a",
     "c2_beaconing":            "b",
     "dga_domain":              "c",
+    "dns_tunneling":           "c",
     "tls_known_malware":       "d",
     "tls_novel_fingerprint":   "d",
     "recon_vertical_scan":     "e",
