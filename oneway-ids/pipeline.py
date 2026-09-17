@@ -217,7 +217,9 @@ class StreamProcessor:
                             if meta is not None:
                                 state["seen"] = True
                                 self.ntls += 1
-                                self.assembler.active[key]["tls_meta"] = meta
+                                flow = self.assembler.active.get(key + ("tcp",))
+                                if flow is not None:
+                                    flow["tls_meta"] = meta
                                 self.tls.on_hello(t, src, dst, dport, meta)
                                 break
         elif proto == "udp":
