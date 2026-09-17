@@ -133,6 +133,11 @@ PLAN.md            build loop log: every design, review, and fix
 
 ## Run it
 
+Detailed walkthroughs:
+
+- [Running the simulation](docs/run-simulation.md)
+- [Category 5-7 models](docs/models-567.md)
+
 ```bash
 python3 -m venv .venv && .venv/bin/pip install scapy dpkt lightgbm cryptography
 .venv/bin/pip install -r requirements-ml.txt  # optional categories 5-7 models
