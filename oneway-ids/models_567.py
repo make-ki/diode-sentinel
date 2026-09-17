@@ -13,6 +13,8 @@ import json
 import math
 import os
 
+from config import EXFIL_MIN_BYTES, SCAN_MIN_PAIRS
+
 
 class Model567DependencyError(RuntimeError):
     pass
@@ -141,6 +143,8 @@ class Models567:
         self.paths = dict(paths)
         self.models = {}
         self.alerted = set()
+        self.exfil_totals = {}
+        self.exfil_novel = set()
         self._load()
 
     def _load(self):
@@ -189,6 +193,8 @@ class Models567:
 
     def score_scan(self, window, src):
         features = scan_features(window, src)
+        if len(window.get("pairs", {}).get(src, set())) < SCAN_MIN_PAIRS:
+            return []
         alerts = []
         for name in ("scan_rf", "scan_iforest"):
             if name not in self.models:
@@ -204,7 +210,14 @@ class Models567:
         return alerts
 
     def score_exfil(self, window, src, dst, total_bytes):
-        features = exfil_features(window, src, dst, total_bytes)
+        pair = (src, dst)
+        self.exfil_totals[pair] = self.exfil_totals.get(pair, 0.0) + total_bytes
+        if dst in window.get("novel_dsts", set()):
+            self.exfil_novel.add(pair)
+        cumulative = self.exfil_totals[pair]
+        if pair not in self.exfil_novel or cumulative < EXFIL_MIN_BYTES:
+            return []
+        features = exfil_features(window, src, dst, cumulative)
         alerts = []
         for name in ("exfil_xgb", "exfil_iforest"):
             if name not in self.models:
