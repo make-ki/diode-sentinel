@@ -1,0 +1,31 @@
+prashaanthChanges.txt — change log for the prashaanth branch
+=============================================================
+
+[2026-09-18 03:17:27 IST / 2026-09-17 21:47:27 UTC]
+
+COMMIT: 5d5870d on branch prashaanth
+MESSAGE: Add DNS tunnelling detector (Item 12): qtype/label wire parse,
+         3 mechanisms, 56 tests
+
+WHAT WAS DONE
+-------------
+- Added oneway-ids/dns_tunnel.py — DNS tunnelling detector (PS class (c),
+  record-type/length half). Three mechanisms:
+    1. encoded_qname_streak  — consecutive long high-entropy base32-ish labels
+    2. data_record_volume    — TXT/NULL record-type share in trailing window
+    3. query_rate_anomaly    — sustained per-zone query rate
+- Added oneway-ids/test_dns_tunnel.py — 56 unit tests; all passed
+  (verified 2026-09-18 before commit; e2e: 7 tunnel alerts in alerts.jsonl,
+  tunnel host 10.0.0.17 only, never critical alone).
+- Updated: config.py (DNS tunnel knobs + ground-truth host/domain),
+  gen_traffic.py (dnscat2-style tunnel scenario, t in [120, 600)),
+  pipeline.py, ml_tier.py, dashboard.py (class (c) mapping), alerts.jsonl,
+  model_ml.txt (LightGBM retrain), traffic.pcap (regenerated),
+  .regression/*.reference.jsonl (parity identical pre-tunnel),
+  PLAN.md (Item 12 loop log, Sep 18), README.md.
+
+STATS
+-----
+15 files changed, 3662 insertions(+), 2701 deletions(-)
+Git identity set repo-local: tester <tester@test> (was unset).
+Commit NOT pushed.
