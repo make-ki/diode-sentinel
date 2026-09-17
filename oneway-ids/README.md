@@ -14,7 +14,7 @@ traffic, with bounded latency by construction.
 | Throughput (with ML tier) | **24,687 pkt/s · 10,081 flow/s** | LightGBM scoring every closed flow |
 | Real-time factor | **2,113×** (rules) / 1,179× (with ML) | 600s capture processed in 0.28s |
 | Alert latency | ≤ 2s flow-idle + ≤ 10s window | bounded by design, not measured tail |
-| Threat classes covered | **6 / 6** | (a)–(f) of PS-26145 |
+| Threat classes covered | **7 / 7** | (1)–(7) requested threat categories |
 | DGA char-CNN vs entropy gate | **1.00 vs 0.47 recall** | held-out DGA family, 0.1% vs 0.3% FP |
 | External-corpus DGA (as shipped) | conficker 0.886 / pushdo 0.446 vs gate 0.019 / 0.000 | andrewaeva/DGA: 694k real DGA / 1M benign; benign host 0.46 alerts/h at shipped quorum — `BENCH-DGA.md` |
 | False positives | **0** (after operator allowlisting) | pressure-tested on messy benign traffic |
@@ -52,6 +52,8 @@ pipeline.py         FlowAssembler (5-tuple, idle timeout)
    │            micro-batched per flush tick, bare-SYN excluded (tier boundary)
    │            + DgaCnnScorer (dga_cnn.py): 1D character CNN on the qname,
    │            numpy-only, family-held-out trained, quorum-gated
+  │            + Models567 (models_567.py): optional category-specific
+  │              XGBoost, Random Forest, Isolation Forest, and packet CNN
    ▼
 FusionEngine        noisy-OR over exponentially decayed confidences,
                     fire-on-escalation dedupe, scenario tags
@@ -63,16 +65,16 @@ dashboard.py        zero-dependency live SOC dashboard (stdlib HTTP server;
                     daisyUI + Chart.js components vendored locally)
 ```
 
-## The six PS threat classes — how each is detected one-way
+## The seven requested threat classes — how each is detected one-way
 
 | PS class | Detector | One-way signal |
 |---|---|---|
 | (a) DDoS / SYN floods / spoofed floods | window rate + entropy | pkt rate, src-IP entropy collapse, SYN ratio |
 | (b) C2 beaconing | IAT periodicity | inter-flow arrival regularity (CV), no request/response pairing |
 | (c) DGA / DNS tunnelling | lexical + behavioral | qname entropy, vowel/digit profile, streaks |
-| (d) encrypted-session malware | JA4/JA3 + novelty | ClientHello metadata over **TLS and QUIC** (QUIC Initials are decryptable one-way — keys are public) |
-| (e) recon / port scan | fan-out | distinct (dst,port) pairs per src per window |
-| (f) data exfiltration | volume + novelty | cumulative bytes to young (src,dst) pairs vs baseline |
+| (5) malware in encrypted sessions | JA4/JA3 + novelty | ClientHello metadata over **TLS and QUIC** (QUIC Initials are decryptable one-way — keys are public) |
+| (6) recon / port scan | fan-out | distinct (dst,port) pairs per src per window, classified as vertical or horizontal |
+| (7) data exfiltration | volume + novelty | cumulative bytes to destinations first observed in the stream, compared with the source baseline |
 
 ## Layout
 
@@ -133,6 +135,7 @@ PLAN.md            build loop log: every design, review, and fix
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install scapy dpkt lightgbm cryptography
+.venv/bin/pip install -r requirements-ml.txt  # optional categories 5-7 models
 
 .venv/bin/python gen_traffic.py          # synthetic one-way capture
 .venv/bin/python run.py                  # full pipeline + report
@@ -146,6 +149,8 @@ python3 -m venv .venv && .venv/bin/pip install scapy dpkt lightgbm cryptography
 .venv/bin/python train_dga_cnn.py        # train the DGA character CNN
 .venv/bin/python test_dga_cnn.py         # 49 unit tests (CNN + backprop)
 .venv/bin/python run.py --dga-cnn        # pipeline + DGA CNN confirmer
+.venv/bin/python train_models_567.py     # train category 5-7 model bundle
+.venv/bin/python run.py --models-567 models567/manifest.json
 .venv/bin/python bench_dga.py           # external-corpus benchmark (~6 min)
 .venv/bin/python bench_dga.py --quick   # 20k subsample, ~40 s
 .venv/bin/python test_bench_dga.py      # 31 unit tests (benchmark harness)
@@ -268,6 +273,20 @@ query from the botnet DGA host. Across 60 fresh cryptolocker-style labels,
 served entirely in numpy. It adds **no dependency**: numpy is already present
 transitively via LightGBM, and there is no torch, keras or ONNX anywhere.
 4,930 parameters, ~60 s to train, CPU only.
+
+## Category 5-7 model tier
+
+`models_567.py` adds an optional learned tier for the three requested threat
+categories. `FlowAssembler` retains bounded packet sizes, timestamps, and the
+one-way outbound direction. Category 5 uses a NumPy 1D CNN over those sequence
+tokens plus XGBoost over TLS/QUIC metadata. Category 6 uses Random Forest and
+Isolation Forest over scan fan-out features. Category 7 uses XGBoost and
+Isolation Forest over transfer volume, baseline, and destination novelty.
+
+Train the bundle with `train_models_567.py`; it writes a JSON manifest and
+model files under `models567/`, which is ignored by git. Serving is opt-in via
+`--models-567`; without the manifest, the original rules and existing ML tier
+continue unchanged.
 
 **Family-held-out evaluation** (the protocol the deck's slide 11 claims, and
 the only honest one for a string model — a random split lets the same family
