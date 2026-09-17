@@ -69,7 +69,7 @@ dashboard.py        zero-dependency live SOC dashboard (stdlib HTTP server;
 
 | PS class | Detector | One-way signal |
 |---|---|---|
-| (a) DDoS / SYN floods / spoofed floods | window rate + entropy | pkt rate, src-IP entropy collapse, SYN ratio |
+| (a) DDoS / SYN floods / spoofed floods / UDP amplification | window rate + entropy + reflection signature | pkt rate, src-IP entropy collapse, SYN ratio; amplification: per-service query rate, small-frame burst share, distinct-source fan-out to reflector ports (spoofed campaigns carry src = the victim) |
 | (b) C2 beaconing | IAT periodicity | inter-flow arrival regularity (CV), no request/response pairing |
 | (c) DGA / DNS tunnelling | lexical + behavioral | qname entropy, vowel/digit profile, streaks; tunnelling: encoded-label streak, TXT/NULL-record volume, per-zone query rate (dnscat2/iodine shapes) |
 | (d) encrypted-session malware | JA4/JA3 + novelty | ClientHello metadata over **TLS and QUIC** (QUIC Initials are decryptable one-way — keys are public) |
@@ -93,6 +93,9 @@ pipeline.py        FlowAssembler + WindowAggregator + StreamProcessor
 detectors.py       6 detectors + FusionEngine + AlertSink
 dns_tunnel.py      DNS tunnelling detector: DNS wire qtype/label parse,
                    three mechanisms (encoded streak / record volume / rate)
+udp_amp.py         UDP reflection/amplification detector (PS class (a),
+                   second half): three mechanisms (per-service query rate /
+                   small-frame burst / distinct-source fan-out)
 tls_meta.py        ClientHello parser, JA4/JA3, record reassembly,
                    TCP seq tracker (retransmit/gap safe)
 hello_profiles.py  synthetic TLS stack profiles (single source of truth
@@ -150,6 +153,7 @@ python3 -m venv .venv && .venv/bin/pip install scapy dpkt lightgbm cryptography
 .venv/bin/python test_fusion.py          # 15 unit tests (fusion)
 .venv/bin/python test_quic.py            # 10 unit tests (QUIC)
 .venv/bin/python test_dns_tunnel.py      # 56 unit tests (DNS tunnelling)
+.venv/bin/python test_udp_amp.py         # 34 unit tests (UDP amplification)
 .venv/bin/python test_live.py            # 64 unit tests (live capture path)
 .venv/bin/python train_dga_cnn.py        # train the DGA character CNN
 .venv/bin/python test_dga_cnn.py         # 49 unit tests (CNN + backprop)

@@ -15,6 +15,7 @@ const SEVERITIES = ['critical', 'high', 'medium', 'low'];
 const CLASS_COLOR = {
   ddos_volumetric_spoofed: '#ff4d6d',
   ddos_syn_flood:          '#ff8095',
+  ddos_udp_amplification:  '#ffb3c0',
   c2_beaconing:            '#ffab4a',
   dga_domain:              '#ffd166',
   tls_known_malware:       '#4ac7ff',
@@ -32,6 +33,7 @@ const CLASS_COLOR = {
 const CLASS_LABEL = {
   ddos_volumetric_spoofed: 'DDoS volumetric (spoofed)',
   ddos_syn_flood:          'DDoS SYN flood',
+  ddos_udp_amplification:  'UDP reflection/amplification',
   c2_beaconing:            'C2 beaconing',
   dga_domain:              'DGA / DNS tunnelling',
   tls_known_malware:       'TLS/QUIC known malware',
@@ -47,7 +49,7 @@ const CLASS_LABEL = {
 };
 
 const CLASS_PS = {
-  ddos_volumetric_spoofed: 'a', ddos_syn_flood: 'a',
+  ddos_volumetric_spoofed: 'a', ddos_syn_flood: 'a', ddos_udp_amplification: 'a',
   c2_beaconing: 'b',
   dga_domain: 'c',
   tls_known_malware: 'd', tls_novel_fingerprint: 'd',

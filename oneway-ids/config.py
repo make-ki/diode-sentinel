@@ -130,6 +130,28 @@ DNS_TUNNEL_REALERT_SECS  = 120.0   # dedupe per (src, mechanism)
 DNS_TUNNEL_HOST   = "10.0.0.17"    # INTERNAL[15]
 DNS_TUNNEL_DOMAIN = "tunnel.example.com"
 
+# ---- UDP reflection/amplification detector (PS class (a), second half) -----
+# The PS names "UDP reflection/amplification" inside class (a); until Item 13
+# only the volumetric symptom (rate + entropy) was caught, not the reflection
+# signature. Discriminators are MEASURED against this repo's benign corpus
+# (see udp_amp.py docstring): benign service-query load is ~1 qps aggregate
+# (~10 queries / ~8 srcs per 10s window; one 90B NTP keepalive per 30s), so
+# every gate below sits 3-6x above anything benign traffic produces.
+UDP_AMP_MIN_QPS_WINDOW = 60     # min queries to ONE service before rate scores
+UDP_AMP_MIN_QPS        = 3.0    # sustained qps to one service => rate anomaly
+UDP_AMP_MIN_PKTS       = 300    # min amplifier-port packets before burst/fanout
+UDP_AMP_SMALL_SHARE    = 0.90   # >=90% tiny frames => query-storm shape
+UDP_AMP_SMALL_BYTES    = 128    # small-frame floor (benign NTP keepalive=90B)
+UDP_AMP_MIN_SRCS       = 30     # distinct srcs in a window => unspoofed fan-out
+UDP_AMP_WINDOW         = 10.0   # detector's own window (matches WINDOW)
+UDP_AMP_REALERT_SECS   = 120.0  # re-arm after this much quiet per campaign
+
+# Ground truth (generator/ml_tier): the amplification campaign and its target.
+UDP_AMP_START     = 180.0       # campaign window start (sim time)
+UDP_AMP_END       = 240.0       # campaign window end
+UDP_AMP_REFLECTOR = "198.18.0.53"   # open DNS reflector the botnet abuses
+UDP_AMP_VICTIM    = "203.0.113.30"  # spoofed source = the victim's address
+
 # ---- DGA character CNN (Tier-2 confirmer on the DNS path) -----------------
 # The Tier-1 lexical rules stay exactly as they are; the CNN is an ADDITIONAL,
 # opt-in (--dga-cnn) confirmer for the labels the rules cannot separate --

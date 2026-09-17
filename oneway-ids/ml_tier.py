@@ -13,7 +13,9 @@ import time
 from config import (ATTACK_HOST_ROLES, VICTIM_IP, FLOOD_WINDOW,
                     SCAN_TARGET_IP, EXFIL_DST_IP, C2_IPS,
                     ML_PROBA_THRESHOLD, ML_REAlert_SECS,
-                    DNS_TUNNEL_HOST, DNS_TUNNEL_DOMAIN)
+                    DNS_TUNNEL_HOST, DNS_TUNNEL_DOMAIN,
+                    UDP_AMP_START, UDP_AMP_END, UDP_AMP_REFLECTOR,
+                    UDP_AMP_VICTIM)
 
 FEATURE_NAMES = ["npkt", "nbytes", "duration", "nsyn", "bytes_per_pkt",
                  "pkts_per_sec", "is_udp", "dport", "sport_priv",
@@ -57,6 +59,14 @@ def label_flow(src, dst, dport, proto, t0) -> int:
             return 1
         if src == "10.0.0.13" and dst == SCAN_TARGET_IP:
             return 1
+    # spoofed amplification queries: src = the VICTIM's address, so label
+    # on (src==victim, dst==reflector, campaign window) -- the same shape
+    # DDosDetector's spoofed-source attribution uses. The unspoofed fanout
+    # half (t=500+) comes from real benign hosts and stays label 0 there:
+    # documented label noise, mirrored on the DNS detector's note.
+    if (src == UDP_AMP_VICTIM and dst == UDP_AMP_REFLECTOR
+            and UDP_AMP_START <= t0 < UDP_AMP_END):
+        return 1
     if dst == VICTIM_IP and FLOOD_WINDOW[0] <= t0 < FLOOD_WINDOW[1]:
         return 1
     return 0

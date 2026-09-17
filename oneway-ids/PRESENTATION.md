@@ -194,9 +194,10 @@ recall at 0.001 FP on an unseen DGA family** where the entropy rules get 0.473
 at 0.003 FP. It also catches a real query on the *shipped demo capture* that
 the rules called benign (`8yuxczaumapqpp`: entropy 3.182 against a 3.3 gate).
 
-What is still missing is `qtype`: we **do not parse record-type anomalies**,
-which is the other half of the statement's clause and the half that matters
-for dnscat2/iodine (they tunnel over TXT/NULL). See §5 for the honest answer.
+What was still missing — `qtype`, the record-type-anomaly half the statement
+names — is now parsed (Item 12, `dns_tunnel.py`: wire-format qtype from the
+payload the packet tuple already carries; streak/volume/rate mechanisms).
+See §5, judge-question 1, for the shipped answer.
 
 ---
 
@@ -220,10 +221,17 @@ computed and carried on the alert. They are the same information — entropy is
 bounded by `log2(distinct)` — and cardinality gives a threshold that does not
 drift with window occupancy. State it plainly; it is a defence, not a dodge.
 
-**(iii) UDP reflection/amplification is not separately modelled.** It is a
-volumetric flood and our rate + entropy path catches the *symptom*, but we do
-not characterise the reflection signature (many small queries to one service,
-large replies coming back). Own this in §5.
+**(iii) UDP reflection/amplification.** WAS the honest gap — Item 13 closed it
+(Sep 18): `udp_amp.py` characterises the *initiation* signature one-way —
+per-service query rate to reflector ports (DNS/NTP/SNMP/memcached/SSDP/...),
+small-frame burst share, distinct-source fan-out for unspoofed botnets — with
+the spoofed-campaign shape (src = the victim's address, invisible to the
+spoofed-source gate because distinct srcs = 1) as the primary mechanism.
+Thresholds are measured against the repo's benign corpus (~1 qps aggregate
+service queries; gates sit 3-6x above). What remains structurally invisible
+is the reply half: amplified responses travel victim-ward and never cross the
+diode, so no bounce ratio is computable — every alert states this in its
+evidence note, same as the DGA response-side note.
 
 ---
 
@@ -337,8 +345,8 @@ getting caught reads as an overclaim.
 
 | # | Question they will ask | Your answer |
 |---|---|---|
-| 1 | *"Where is your record-type anomaly for DNS tunnelling? The statement names dnscat2/iodine."* | Lexical half is implemented and tested (entropy, label length, vowel/digit profile, streak) **plus a learned Tier-2 character CNN** (1.000 vs 0.473 recall on an unseen DGA family). Record-type is **not** yet parsed. dnscat2/iodine tunnel over TXT/NULL, so that anomaly is `qtype` + query rate, not entropy — and note the CNN does not cover it either, because it reads the label, not the record type. `qtype` is visible in the query, one-way, with no response needed: it is a ~20-line change in the same code path. Say the size of the change; that proves you scoped it. |
-| 2 | *"UDP reflection/amplification? Slowloris?"* | Neither is separately modelled. Reflection/amplification is caught as a volumetric flood symptom by rate + entropy, not by its signature. Slowloris appears in the statement's *dataset suggestions*, not in the scored threat list (a)–(f); one-way it would be a long-lived half-open-flow pattern, which our flow-assembler could carry but we have not built. |
+| 1 | *"Where is your record-type anomaly for DNS tunnelling? The statement names dnscat2/iodine."* | **Shipped** (Item 12): `dns_tunnel.py` parses qtype from the DNS wire format in the payload the packet tuple already carries — three mechanisms (encoded-label streak, TXT/NULL record-volume share at sustained rate, per-zone query rate), 56 unit tests, zero benign FPs on the pressure-test corpus, regression parity identical. What remains structurally invisible is the response side (record sizes), stated in every alert's note. |
+| 2 | *"UDP reflection/amplification? Slowloris?"* | Reflection/amplification **is** separately modelled (Item 13, `udp_amp.py`): the initiation signature — query rate to reflector ports, small-frame burst share, source fan-out — with spoofed (src = victim) and unspoofed botnet shapes, thresholds measured against the benign corpus; the reply half is structurally invisible one-way and every alert says so. Slowloris appears in the statement's *dataset suggestions*, not in the scored threat list (a)–(f); one-way it would be a long-lived half-open-flow pattern, which our flow-assembler could carry but we have not built. |
 | 3 | *"Your own generator, your own labels — isn't that circular?"* | Partly, and we say so. Three mitigations: temporal splits mean the model never sees the future; the 10 "misses" are generator label noise we publish rather than tune away; and the DGA detector has now been scored **as shipped** on an external, citable corpus — andrewaeva/DGA, 694k real DGA domains / 1M benign, nothing refit (`BENCH-DGA.md`) — where the quorum constant was measured rather than guessed. The flow-feature pipeline takes real datasets through the same path — CTU-13, CIC-IDS, CESNET-TLS22 remain the named next step. |
 | 4 | *"Is the live capture actually tested against a real interface?"* | **No — and we say that first.** The development container has `CapBnd: 0`, so no capability can be acquired there at all, not even by root or via a file-capped helper. What *is* verified end-to-end: a real FIFO written in chunks by a separate process reproduces the offline alert stream **byte-for-byte**, plus drop accounting, sampling, interface validation and both privilege-failure paths. The only unexercised piece is the `AF_PACKET` socket setup itself. |
 | 5 | *"188 Mbps is a microbenchmark extrapolated from a 0.09 Mbps capture."* | Fair. Dissection is O(1) per packet so pkt/s generalises, and the **1-in-N sampling guard exists precisely because the pure-Python ceiling is ~45k pkt/s single core** — above it we degrade coverage deterministically and **report the loss** rather than hide it. Note the PS says the ingest is *simulated*; the ceiling claim is bounded and stated. |

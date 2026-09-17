@@ -50,6 +50,7 @@ PS_CLASSES = [
 CLASS_TO_PS = {
     "ddos_volumetric_spoofed": "a",
     "ddos_syn_flood":          "a",
+    "ddos_udp_amplification":  "a",
     "c2_beaconing":            "b",
     "dga_domain":              "c",
     "dns_tunneling":           "c",

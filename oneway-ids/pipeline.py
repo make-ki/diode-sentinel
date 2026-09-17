@@ -11,6 +11,7 @@ from config import WINDOW, IDLE_TIMEOUT, TICK_INTERVAL, TLS_PORTS
 from detectors import (DDosDetector, ScanDetector, ExfilDetector,
                        BeaconDetector, DGADetector, TlsDetector, FusionEngine)
 from dns_tunnel import DnsTunnelDetector, parse_qtype
+from udp_amp import UdpAmpDetector
 from tls_meta import TlsRecordReassembler, SeqTracker, parse_client_hello
 from quic_meta import is_quic_initial, extract_quic_client_hello
 
@@ -165,6 +166,7 @@ class StreamProcessor:
         self.beacon = BeaconDetector(sink)
         self.dga = DGADetector(sink, cnn=dga_cnn)
         self.dns_tunnel = DnsTunnelDetector(sink)
+        self.udp_amp = UdpAmpDetector(sink)
         self.tls = TlsDetector(sink, state_path=tls_state_path)
         self.fusion = FusionEngine(sink)
         sink.subscribe(self.fusion.on_alert)
@@ -235,6 +237,10 @@ class StreamProcessor:
                     if qmeta is not None:
                         self.ntls += 1
                         self.tls.on_hello(t, src, dst, dport, qmeta)
+            # ---- UDP reflection/amplification hook (PS class (a) second
+            # half): fed from the tuple this far already carries; amplifier-
+            # port traffic only, so QUIC/other UDP never enters its windows.
+            self.udp_amp.on_packet(t, src, dst, dport, size)
 
     def tick(self, t):
         if t - self.last_flush_t < self.tick_interval:
@@ -260,6 +266,7 @@ class StreamProcessor:
         if self.ml_scorer:
             self.ml_scorer.flush()
         self.agg.flush_current()
+        self.udp_amp.flush_current()
         return dict(npkt=self.npkt,
                     flows=self.assembler.closed_count,
                     windows=self.agg.flushed,

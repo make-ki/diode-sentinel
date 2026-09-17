@@ -592,3 +592,84 @@ unavailable — documented limitation, exactly the diode constraint.
   benchmark's 1-qps assumption -- a busy resolver host needs per-site
   baselining before these gates mean anything (same UEBA-shaped gap as the
   exfil feedback loop).
+
+## Sep 18 (later) -- ITEM 13: UDP reflection/amplification detector
+(closes the class-(a) second half; the PRESENTATION honest-gap and
+judge-question #2 concede this one directly)
+
+- Motivation: the PS names "UDP reflection/amplification" inside class (a).
+  DDosDetector caught only the volumetric SYMPTOM (rate + entropy + SYN
+  ratio). The reflection SIGNATURE was unmodelled, and the worst shape of
+  all was structurally invisible to every detector in the repo: a spoofed
+  campaign carries src = the VICTIM's address, so distinct-srcs = 1 (below
+  the 500 spoof gate), syn_ratio = 0 (UDP), and per-flow ML sees only
+  single-packet flows. A diode sees only the query half -- which is
+  sufficient: launching the attack means emitting exactly this pattern.
+- Zero schema change by design (the QUIC/DNS-tunnel playbook): the detector
+  is fed from the packet tuple StreamProcessor.feed ALREADY carries (UDP
+  hook, amplifier-port gate). pcap_reader/live_source untouched => parity
+  surface byte-identical. Old pcap replayed byte-identical against the
+  reference BEFORE any new traffic was generated (md5 recorded pre-change).
+- Discriminators MEASURED against this repo's benign corpus, not guessed:
+  benign service-query load is ~1 qps aggregate (~10 queries / ~8 srcs per
+  10s window; one 90B NTP keepalive per 30s -- the keepalive IS small-frame,
+  so the 128B floor is honest but the load is 3 orders below the burst
+  gate). Gates: rate 3 qps + 60 queries/window to ONE service; burst 300
+  pkts/window at >=90% small share; fan-out 30 distinct srcs + 300 pkts.
+- Three mechanisms, one detector (dns_tunnel structure): query_rate_spike
+  (primary: catches the spoofed shape -- one src firing tiny queries at one
+  reflector service), small_query_burst (cross-service storm shape),
+  amplifier_fanout (unspoofed dumb-botnet shape, real IPs). Confidence
+  bands 0.65-0.899: NEVER critical alone (the 0.90 severity flip is a hard
+  cap) -- a critical amplification verdict must come from fusion with an
+  independent signal, same policy as the tunnel detector.
+- BUG 1 (design, caught before implementation): the first sketch made
+  distinct-source fan-out the primary mechanism. That inverts the threat:
+  the classic spoofed campaign has ONE visible source. Rate-to-one-service
+  became primary; fan-out is the unspoofed variant.
+- BUG 2 (dedupe semantics, caught by tests, the dns_tunnel BUG 2 lesson
+  reprised in a new form): re-arm by alert-age arithmetic re-alerted a
+  CONTINUOUS campaign every REALERT_SECS. Fix: per-service continuity --
+  the campaign is dead only when the service has seen NO packets for
+  REALERT windows; a still-busy service never re-arms.
+- BUG 3 (state ordering, caught by tests): folding the current window's
+  activity into the continuity state BEFORE scoring (a) suppressed the
+  first alert of a campaign (the service looks 'busy' in its own alert
+  window) and (b) erased the quiet gap a re-arm decision must see. Fix:
+  fold AFTER scoring, preserving previous-fold -> current-busy semantics.
+  Also: flush_current() must clear cur_idx or a post-drain packet triggers
+  a _flush on cleared state (crash).
+- BUG 4 (test-side): two tests mis-fed the gates -- a 'rate' test computing
+  0.4 qps while asserting 4 qps (step arithmetic), and a fan-out test
+  feeding 96 pkts against a 300-pkt floor. The detector was right both
+  times; the tests now assert the gate numbers explicitly.
+- Generator (ATTACK 3b + unspoofed companion, tuned against the OTHER
+  detectors -- the Item 12 lesson): spoofed campaign t=[180,240) fires
+  120 qps (exponential IATs, CV~1 -- a robotic grid would legitimately fire
+  beacon) with short benign qnames (DGA/tunnel gates correctly silent);
+  unspoofed fan-out t=[500,530) joins all 20 hosts at ~1.7 qps each.
+  Both shapes produce ZERO re-alerts from any other detector: coverage,
+  not generator artifact.
+- Verification: 34 new checks (port table, per-mechanism gates + silence
+  below gates, fire-once-per-campaign + continuity re-arm, benign corpus
+  zero-alert with the margin asserted numerically, pipeline hook, e2e
+  evidence schema incl. never-critical-alone). All 9 suites green
+  (34 + 295 pre-existing). New pcap: 3 amplification alerts (rate 0.899
+  high + burst 0.8 high on the spoofed campaign; rate 0.761 on the
+  unspoofed fan-out with 20 srcs). MESSY=1: zero benign amplification FPs
+  with IoT telemetry + cloud backup + CDN DNS in the stream.
+  --parity IDENTICAL (dpkt vs scapy) on the new pcap.
+- Integration: ml_tier.label_flow labels the spoofed campaign (victim-src,
+  reflector-dst, campaign window) malicious -- documented noise: the
+  unspoofed half comes from real hosts and stays label 0. model_ml.txt
+  retrained; --ml run: 98 alerts, parity IDENTICAL. Dashboard:
+  ddos_udp_amplification maps to PS class a in CLASS_TO_PS + app.js maps
+  (colour/label/PS), coverage panel unchanged (six classes).
+- Docs: README class table (a) row + module list + test count;
+  PRESENTATION honest-gap (iii) and judge-questions #1/#2 flipped from
+  concession to shipped answer. Honest gaps remaining: the reply half is
+  structurally invisible one-way (no bounce ratio; stated in evidence);
+  per-service gates inherit the synthetic baseline (same UEBA-shaped gap
+  as the tunnel rate mechanisms); reflection over ports the benign corpus
+  never exercises (LDAP/Chargen) is gated by table membership + rate, not
+  by measured benign behaviour on those ports.

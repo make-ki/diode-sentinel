@@ -46,3 +46,44 @@ HOUSEKEEPING (no code changes)
   dga_cnn, live, dashboard, bench_dga, dns_tunnel.
 - Policy change going forward: EVERY change on this branch is logged in this
   file with a timestamp.
+
+[2026-09-18 04:18:30 IST / 2026-09-17 22:48:30 UTC]
+
+ITEM 13 — UDP REFLECTION/AMPLIFICATION DETECTOR (PS class (a), second half)
+---------------------------------------------------------------------------
+Closes the last unconceded honest gap: PRESENTATION honest-gap 3(iii) and
+judge-question #2 are flipped from concession to shipped answer.
+
+NEW FILES
+- udp_amp.py: three mechanisms (per-service query_rate_spike / cross-service
+  small_query_burst / amplifier_fanout), spoofed-campaign shape (src =
+  victim's address, distinct-srcs=1 — invisible to the spoofed gate) as
+  primary; never critical alone (0.899 hard cap); fire-once-per-campaign
+  with continuity-based re-arm; one-way note in every alert.
+- test_udp_amp.py: 34 unit tests (all green).
+
+MODIFIED
+- pipeline.py: UDP hook (zero schema change, like the QUIC hook);
+  config.py: UDP_AMP_* knobs measured against the benign corpus
+  (~1 qps benign vs 3 qps gate), campaign ground truth;
+  gen_traffic.py: ATTACK 3b spoofed campaign t=[180,240) @120qps with
+  exponential IATs + unspoofed fanout t=[500,530) (all 20 hosts);
+  ml_tier.py: victim-src campaign flows labeled malicious; model_ml.txt
+  retrained (98-alert --ml run, parity IDENTICAL);
+  dashboard.py + static/app.js: ddos_udp_amplification -> PS class a;
+  traffic.pcap regenerated (20265 pkts); alerts.jsonl/run_stats.json
+  refreshed from the full --ml replay; README class table (a) row +
+  module/test list; PRESENTATION traps (iii)/(1)/(2) flipped to shipped;
+  PLAN.md: Item 13 loop log (4 bugs found+fixed: primary-mechanism design
+  inversion, alert-age re-arm on continuous campaigns, fold-before-score
+  state ordering, post-drain cur_idx crash).
+
+VERIFICATION
+- 9/9 test suites green (34 new + 295 pre-existing checks).
+- Old-pcap parity asserted IDENTICAL BEFORE new traffic; new-pcap --parity
+  IDENTICAL (dpkt vs scapy); --ml run parity IDENTICAL.
+- MESSY=1: zero benign amplification FPs; e2e: 3 amp alerts, 2 mechanisms,
+  all high (never critical alone), never on benign srcs.
+
+NOT PUSHED. Next session candidates: UEBA per-site baselining (the shared
+honest gap of both rate detectors) or push + presentation rehearsal.

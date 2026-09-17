@@ -213,6 +213,57 @@ for _ in range(3000):
     _tcp(random.uniform(300, 320), _spoofed_ip(), VICTIM,
          _sport(), 443, 60, "S")
 
+# ---------------- ATTACK 3b: UDP reflection/amplification (t in [180,240)) --
+# CLASS (a) second half, closed by Item 13. A botnet floods an open DNS
+# reflector with spoofed queries: src = VICTIM's address (classic bounce-off),
+# dst = the reflector, UDP/53, tiny query frames. The diode sees ONLY the
+# query half; the amplified replies go victim-ward and never appear.
+#   Shape (measured against the detector's gates, and against the OTHER
+#   detectors -- the Item 12 lesson: a scenario that fires everything is a
+#   generator artifact, not coverage):
+#   - 120 qps mean with EXPONENTIAL IATs (CV~1.0): a robotic 0.0083s grid
+#     is legitimately periodic and the beacon detector would be RIGHT to
+#     fire on it; Poisson query storms are not periodic. Beacon stays silent
+#     by construction (and it sees one flow-less UDP stream anyway: every
+#     packet gets a fresh sport, so FlowAssembler never closes a series).
+#   - qnames are short benign single labels ('check', 'a', 'pool'...): the
+#     DGA gate needs >=10 chars/high entropy and the tunnel gate needs a
+#     20-char base32 label -- both correctly ignore resolver chatter.
+#     (Queries to 8.8.8.8 in the benign stream look identical; the ONLY
+#     discriminators are rate, and rate is the point: ~1 qps benign vs
+#     120 qps here.)
+#   - payload is a real 17B DNS query (header + 1 label + qtype) so the
+#     frame lands <=128B (small-frame gate) and pcap size stays honest.
+#   - all srcs = the victim: distinct-srcs = 1, so DDosDetector's spoofed
+#     gate (500+) and SYN gate are structurally silent -- that hole is what
+#     the new detector fills (rate mechanism: 1200 queries/window >> 60).
+from config import UDP_AMP_START, UDP_AMP_END, UDP_AMP_REFLECTOR, UDP_AMP_VICTIM
+import struct as _struct
+_UDP_BENIGN_QNAMES = ("check", "pool", "time", "a", "relay")
+
+def _amp_query(t, src, dst, name):
+    q = name.encode() + b"\x00" + _struct.pack(">HH", 1, 1)  # A, IN
+    hdr = _struct.pack(">HHHHHH", 0x1234, 0x0100, 1, 0, 0, 0)
+    events.append((t, Ether() / IP(src=src, dst=dst)
+                   / UDP(sport=random.randint(40000, 60000), dport=53)
+                   / Raw(hdr + q)))
+
+_t = UDP_AMP_START
+while _t < UDP_AMP_END:
+    _amp_query(_t, UDP_AMP_VICTIM, UDP_AMP_REFLECTOR,
+               random.choice(_UDP_BENIGN_QNAMES))
+    _t += random.expovariate(120.0)
+
+# UNSPOOFED companion burst (t in [500,530)): a dumb botnet queries the
+# reflector from real IPs -- exercises the fanout mechanism (30+ distinct
+# srcs) without spoofing. Exponential IATs for the same beacon guard.
+for i in range(INTERNAL.__len__()):            # all 20 hosts participate
+    _t = 500.0 + random.expovariate(1.0)       # staggered joins
+    while _t < 530.0:
+        _amp_query(_t, INTERNAL[i], UDP_AMP_REFLECTOR,
+                   random.choice(_UDP_BENIGN_QNAMES))
+        _t += random.expovariate(0.6)          # ~0.6s IAT => ~1.7 qps/host
+
 # ---------------- ATTACK 4: vertical port scan (500 ports) ----------------
 for i in range(500):
     _tcp(400 + i * 0.03, INTERNAL[11], SCAN_TARGET, _sport(),
