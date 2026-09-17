@@ -67,7 +67,7 @@ def _batched(it, n=CAPTURE_BATCH):
 
 def run_stream(read_batch, sink, clock=None, ml_scorer=None,
                tls_state_path=None, live=False, processor=None,
-               on_tick=None, idle_limit=None, dga_cnn=None):
+               on_tick=None, idle_limit=None, dga_cnn=None, models567=None):
     """Drive a StreamProcessor over batches of packet tuples.
 
     clock:        callable -> stream-relative seconds. None means "use packet
@@ -79,7 +79,8 @@ def run_stream(read_batch, sink, clock=None, ml_scorer=None,
     """
     proc = processor or StreamProcessor(sink, ml_scorer,
                                         tls_state_path=tls_state_path,
-                                        dga_cnn=dga_cnn)
+                                        dga_cnn=dga_cnn,
+                                        models567=models567)
     wall0 = time.perf_counter()
     idle = 0
     last_t = 0.0
@@ -112,7 +113,7 @@ def run_stream(read_batch, sink, clock=None, ml_scorer=None,
 
 
 def run_pipeline(packets, sink, ml_scorer=None, tls_state_path=None,
-                 dga_cnn=None):
+                 dga_cnn=None, models567=None):
     """Offline replay of a packet iterable (named entry point for parity).
 
     Passing tls_state_path opts into a warm replay: the stored JA4 inventory
@@ -120,7 +121,7 @@ def run_pipeline(packets, sink, ml_scorer=None, tls_state_path=None,
     byte-identical to the original prototype.
     """
     proc = StreamProcessor(sink, ml_scorer, tls_state_path=tls_state_path,
-                           dga_cnn=dga_cnn)
+                           dga_cnn=dga_cnn, models567=models567)
     if tls_state_path:
         proc.tls.load_state(tls_state_path)
     stats = run_stream(_batched(packets), sink, processor=proc)
@@ -135,7 +136,7 @@ def run_pipeline(packets, sink, ml_scorer=None, tls_state_path=None,
 def run_live(iface, sink, ml_scorer=None, state_path=STATE_PATH,
              sample=LINE_RATE_SAMPLE, duration=None, source=None, clock=None,
              batch=CAPTURE_BATCH, idle_limit=None, verbose=True, on_tick=None,
-             dga_cnn=None):
+             dga_cnn=None, models567=None):
     """Live capture driver.
 
     source and clock are injectable so the live code path can be exercised and
@@ -165,7 +166,7 @@ def run_live(iface, sink, ml_scorer=None, state_path=STATE_PATH,
 
     state_path = state_path or None
     proc = StreamProcessor(sink, ml_scorer, tls_state_path=state_path,
-                           dga_cnn=dga_cnn)
+                           dga_cnn=dga_cnn, models567=models567)
     warmed = proc.tls.load_state(state_path) if state_path else False
     if verbose:
         if warmed:
@@ -349,10 +350,29 @@ def load_dga_cnn(model_path):
     return None
 
 
+def load_models567(manifest_path):
+    """Load category 5-7 models from a JSON manifest, or stay disabled."""
+    if not manifest_path:
+        return None
+    from models_567 import Models567
+    try:
+        with open(manifest_path) as fh:
+            manifest = json.load(fh)
+        return Models567(manifest["models"])
+    except (FileNotFoundError, KeyError, ValueError) as exc:
+        print(f"[warn] category 5-7 manifest '{manifest_path}' could not be "
+              f"loaded ({type(exc).__name__}: {exc}); continuing rules-only")
+    except Exception as exc:
+        print(f"[warn] category 5-7 models unavailable ({type(exc).__name__}: "
+              f"{exc}); continuing rules-only")
+    return None
+
+
 def main(pcap_path=PCAP_PATH, parity=False, ml_model=None, live=None,
          pipe=None, state_path=None, sample=LINE_RATE_SAMPLE, duration=None,
-         no_state=False, dga_model=None):
+         no_state=False, dga_model=None, models567_manifest=None):
     dga_cnn = load_dga_cnn(dga_model)
+    models567 = load_models567(models567_manifest)
     if live or pipe:
         sink = AlertSink(truncate=False)       # live: append, dashboard tails
         scorer = load_scorer(sink, ml_model)
@@ -363,7 +383,8 @@ def main(pcap_path=PCAP_PATH, parity=False, ml_model=None, live=None,
                 if pipe else None
             run_live(target, sink, ml_scorer=scorer, source=source,
                      state_path=None if no_state else (state_path or STATE_PATH),
-                     sample=sample, duration=duration, dga_cnn=dga_cnn)
+                     sample=sample, duration=duration, dga_cnn=dga_cnn,
+                     models567=models567)
         except (CaptureConfigError, CapturePermissionError) as e:
             print(f"[error] {e}", file=sys.stderr)
             return 2
@@ -378,7 +399,8 @@ def main(pcap_path=PCAP_PATH, parity=False, ml_model=None, live=None,
         try:
             reports[name] = run_pipeline(reader(pcap_path), sink, scorer,
                                          tls_state_path=state_path,
-                                         dga_cnn=dga_cnn)
+                                         dga_cnn=dga_cnn,
+                                         models567=models567)
         except ImportError:
             print(f"[skip] {name} not installed")
             continue
@@ -423,6 +445,9 @@ def _cli(argv=None):
     p.add_argument("--dga-cnn", action="store_true", dest="dga_cnn",
                    help="enable the Tier-2 DGA character CNN confirmer "
                         "(needs model_dga_cnn.npz from train_dga_cnn.py)")
+    p.add_argument("--models-567", metavar="MANIFEST",
+                   help="enable category 5-7 XGBoost/forest/CNN models from "
+                        "a JSON manifest")
     return p
 
 
@@ -444,7 +469,8 @@ def _run_cli(argv=None):
                 live=args.live, pipe=args.pipe, state_path=args.state,
                 sample=args.sample, duration=args.duration,
                 no_state=args.no_state,
-                dga_model="model_dga_cnn.npz" if args.dga_cnn else None)
+                dga_model="model_dga_cnn.npz" if args.dga_cnn else None,
+                models567_manifest=args.models_567)
 
 
 if __name__ == "__main__":
