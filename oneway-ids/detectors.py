@@ -390,6 +390,12 @@ class ExfilDetector:
         for (src, dst), b in w["pair_bytes"].items():
             state = self.pairs.get((src, dst))
             if state is None:
+                # A pair is eligible only when its destination was first
+                # observed in this stream window. This prevents ordinary
+                # traffic to an established destination from being promoted
+                # to "novel" merely because the pair state was not retained.
+                if dst not in w["novel_dsts"]:
+                    continue
                 state = [w["idx"], 0]
                 self.pairs[(src, dst)] = state
             state[1] += b
@@ -411,6 +417,7 @@ class ExfilDetector:
                                "pair_age_windows": age,
                                "src_baseline_bytes_median": int(baseline),
                                "ratio_vs_baseline": round(total / max(baseline, 1), 1),
+                               "novel_destination": True,
                                "why": "large sustained upload to a never-before-"
                                       "seen destination, far above the source "
                                       "host's normal window volume",
