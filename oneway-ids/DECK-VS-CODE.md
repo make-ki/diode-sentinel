@@ -228,19 +228,33 @@ verifiable in the demo:
 | `dictionary_pair` — different kind | 1500 | 0.007 | 0.004 |
 | benign — false-positive rate | 2000 | **0.001** | 0.003 |
 
-**And the single best demo line in the whole project.** On the shipped demo
-traffic, with `--ml --dga-cnn`, the pipeline emits 56 alerts instead of 55. The
-extra one is a **true DGA query the entropy rules called benign**:
+**And the single best demo line in the whole project — read this before you
+use it.** The CNN's rescue *used* to be a live alert. At the original quorum
+`DGA_CNN_MIN_STREAK = 2`, `--ml --dga-cnn` emitted 56 alerts vs 55 for `--ml`
+alone, the extra one being a **true DGA query the entropy rules called benign**:
 
 - label `8yuxczaumapqpp`, from `10.0.0.9` (ground-truth role `botnet_dga`)
 - character entropy **3.182** against a `DGA_MIN_ENTROPY` gate of **3.3**
 - rules: benign. CNN: **1.000**. Emitted at `high`, conf 0.85, zero new FPs.
 
-That single example ties the whole project together: the miss is caused by
-**the exact finite-sample entropy bias this repo documented before the model
-existed** (README "lessons baked in" #1). It is not a hypothetical accuracy
-improvement — it is a real query on the demo capture, and you can show the two
-numbers on stage.
+**That line no longer fires at the shipped quorum, and quoting it as current
+would be the one thing a judge can check and break.** The external corpus
+(`BENCH-DGA.md`) measured the CNN's per-string FP rate at **16.5% on 1M real
+benign labels**, which made k=2 cry wolf **17.3 alerts/hour on a purely benign
+host**; `DGA_CNN_MIN_STREAK = 4` is the shipped default for that measured
+reason. Verified on this capture: `--ml --dga-cnn` emits the **same 55 alerts
+as `--ml`, byte-identical** — the CNN corroborates 8 existing lexical alerts at
+prob 1.0 (`tier1_lexical+cnn_confirmed`), emits **zero** `tier2_cnn_only`
+alerts, and `8yuxczaumapqpp` sits one label short of the quorum and stays
+quiet.
+
+So tell the story as a **measurement on the benchmark, not a live alert**:
+on the external corpus the CNN recovers conficker **0.019 → 0.886** and pushdo
+**0.000 → 0.446** where the entropy gate's 10-character floor blinds it. That
+is stronger evidence than one demo packet ever was. If the live rescue matters
+for the demo, run it with an explicit `cnn_min_streak=2` **for the demo only**
+and *say* the shipped default is 4 — do not silently revert the default to make
+a nicer screenshot.
 
 **What it does NOT do — say this before a judge asks.** The held-out
 *dictionary* family scores 0.007 for the CNN and 0.004 for the rules: neither

@@ -1,0 +1,28 @@
+[project]
+name = "oneway-ids"
+version = "1.0.0"
+description = "One-way-feed NIDS prototype: rule + ML tiers, DGA char-CNN, TLS/QUIC metadata, fusion"
+readme = "README.md"
+requires-python = ">=3.14"
+# Pinned to the exact versions the results in BENCH-DGA.md / dga_bench.json were
+# produced with. `uv sync` reproduces this environment bit-for-bit from uv.lock.
+dependencies = [
+    "numpy==2.5.3",
+    "scipy==1.18.1",
+    "scikit-learn==1.9.1",
+    "lightgbm==4.7.0",
+    "scapy==2.7.0",
+    "dpkt==1.9.8",
+    "cryptography==50.0.1",
+]
+
+# Test suites are plain unittest scripts (test_*.py), run directly with
+# `uv run python test_*.py` -- no pytest dependency.
+
+[tool.uv]
+# Use the host's interpreter, not uv's managed CPython. uv's managed build is a
+# generic-Linux binary that NixOS's non-FHS loader cannot run out of the box, so
+# on this host the Nix system python is the workable interpreter -- and it needs
+# libstdc++ on LD_LIBRARY_PATH, which .env-ml / `nix develop` provide. On a
+# normal FHS distro this needs no shim at all.
+python-preference = "system"

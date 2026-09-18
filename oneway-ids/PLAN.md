@@ -440,6 +440,14 @@ unavailable — documented limitation, exactly the diode constraint.
   nothing else in the suite would notice). End-to-end with --ml --dga-cnn the
   pipeline emits 56 alerts vs 55 for --ml alone: the +1 is the rescued DGA
   query above, on a true attack host, and zero benign DNS false positives.
+  [SUPERSEDED -- this was written when DGA_CNN_MIN_STREAK was still 2. The
+  external corpus (Item 11) measured the CNN's per-string FP rate at 16.5% on
+  1M benign labels and the quorum was raised to 4; at k=4 --ml --dga-cnn emits
+  the SAME 55 alerts as --ml, byte-identical, with 8 lexical alerts CNN-
+  confirmed at prob 1.0 and zero tier2_cnn_only. 8yuxczaumapqpp stays one
+  label short of the quorum. Tell the rescue as a per-string measurement on
+  the benchmark (conficker 0.019->0.886, pushdo 0.000->0.446), not as a live
+  alert. See BENCH-DGA.md "the cost of k=4".]
 - REGRESSION GUARD (the part that matters): --dga-cnn is opt-in and the
   detector with cnn=None is unchanged. Verified mechanically: offline replay
   reproduces alerts_rules.reference.jsonl byte-for-byte, --ml reproduces

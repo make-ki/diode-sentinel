@@ -77,6 +77,13 @@ dashboard.py        zero-dependency live SOC dashboard (stdlib HTTP server;
 ## Layout
 
 ```
+pyproject.toml     pinned interpreter deps (exact versions the results were
+                   measured with) -- `uv sync` reproduces .venv from uv.lock
+uv.lock            locked dependency graph incl. hashes
+flake.nix          NixOS dev shell: pinned nixpkgs provides uv + libstdc++
+                   (numpy/scipy/lightgbm need it; Nix keeps it off the loader
+                   path) -- `nix develop`
+.env-ml            same libstdc++ shim without flakes (`source .env-ml`)
 config.py          thresholds, allowlist, label ground truth, paths
 gen_traffic.py     synthetic one-way pcap: benign + attacks (MESSY=1 for
                    the FP-pressure variant)
@@ -121,6 +128,8 @@ bench_dga.py        cross-dataset benchmark on andrewaeva/DGA (external,
 test_bench_dga.py   31 checks: fixture-corpus loader, sampling guarantees,
                     sorted-stream ordering regression, quorum-sweep math
 BENCH-DGA.md        full-corpus results: per-family TPR, FP, quorum sweep
+BENCH-DGA-FINDINGS.md  superseded pre-full-run note; kept for the quick->full
+                   deltas (what scaling confirmed and what it revised)
 static/index.html  dashboard page
 static/app.css     layout + SOC palette (daisyUI tokens, dark/light)
 static/app.js      polling client: KPIs, charts, filters, evidence modal
@@ -129,40 +138,67 @@ alerts.jsonl       standardized alert stream (dashboard input)
 PLAN.md            build loop log: every design, review, and fix
 ```
 
+## Reproducing the environment
+
+The interpreter dependencies are pinned to the exact versions the benchmark
+and every documented result were produced with. With
+[uv](https://docs.astral.sh/uv/) installed:
+
+```bash
+uv sync          # creates .venv bit-for-bit from uv.lock (numpy, scipy,
+                 # scikit-learn, lightgbm, scapy, dpkt, cryptography + deps)
+```
+
+`dga_bench.json` also records the model sha256 and both corpus-file digests, so
+the benchmark run itself is reproducible, not just the environment.
+
+**On NixOS only**, numpy/scipy/lightgbm link `libstdc++.so.6`, which Nix keeps
+off the default loader path — the venv builds but the C extensions fail to
+import until it is on `LD_LIBRARY_PATH`. `flake.nix` handles this:
+
+```bash
+nix develop     # pinned nixpkgs (flake.lock) provides uv + libstdc++, then:
+uv sync         # inside the dev shell, imports work with no extra steps
+```
+
+Without flakes, `source .env-ml` resolves the same library paths dynamically
+(the previous hardcoded store hash broke on every nixos-rebuild that touched
+gcc). On a normal FHS distro neither shim is needed — plain `uv sync` works.
+
 ## Run it
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install scapy dpkt lightgbm cryptography
+uv sync                 # one-time: reproduce the pinned environment
 
-.venv/bin/python gen_traffic.py          # synthetic one-way capture
-.venv/bin/python run.py                  # full pipeline + report
-.venv/bin/python run.py --parity         # dpkt vs scapy parity check
-.venv/bin/python train_ml.py             # train ML tier (temporal split)
-.venv/bin/python run.py --ml             # pipeline + ML tier
-.venv/bin/python test_tls_meta.py        # 42 unit tests (TLS/JA4)
-.venv/bin/python test_fusion.py          # 15 unit tests (fusion)
-.venv/bin/python test_quic.py            # 10 unit tests (QUIC)
-.venv/bin/python test_live.py            # 64 unit tests (live capture path)
-.venv/bin/python train_dga_cnn.py        # train the DGA character CNN
-.venv/bin/python test_dga_cnn.py         # 49 unit tests (CNN + backprop)
-.venv/bin/python run.py --dga-cnn        # pipeline + DGA CNN confirmer
-.venv/bin/python bench_dga.py           # external-corpus benchmark (~6 min)
-.venv/bin/python bench_dga.py --quick   # 20k subsample, ~40 s
-.venv/bin/python test_bench_dga.py      # 31 unit tests (benchmark harness)
-.venv/bin/python test_dashboard.py       # dashboard API + asset tests
-.venv/bin/python dashboard.py            # live dashboard on :8600
-MESSY=1 .venv/bin/python gen_traffic.py  # FP-pressure traffic variant
+uv run python gen_traffic.py          # synthetic one-way capture
+uv run python run.py                  # full pipeline + report
+uv run python run.py --parity         # dpkt vs scapy parity check
+uv run python train_ml.py             # train ML tier (temporal split)
+uv run python run.py --ml             # pipeline + ML tier
+uv run python test_tls_meta.py        # 42 unit tests (TLS/JA4)
+uv run python test_fusion.py          # 15 unit tests (fusion)
+uv run python test_quic.py            # 10 unit tests (QUIC)
+uv run python test_live.py            # 64 unit tests (live capture path)
+uv run python train_dga_cnn.py        # train the DGA character CNN
+uv run python test_dga_cnn.py         # 49 unit tests (CNN + backprop)
+uv run python run.py --dga-cnn        # pipeline + DGA CNN confirmer
+uv run python bench_dga.py            # external-corpus benchmark (~6 min)
+uv run python bench_dga.py --quick    # 20k subsample, ~40 s
+uv run python test_bench_dga.py       # 31 unit tests (benchmark harness)
+uv run python test_dashboard.py       # dashboard API + asset tests
+uv run python dashboard.py            # live dashboard on :8600
+MESSY=1 uv run python gen_traffic.py  # FP-pressure traffic variant
 
 # live capture by reading the socket directly (needs CAP_NET_RAW)
-sudo .venv/bin/python run.py --live eth0
-sudo .venv/bin/python run.py --live eth0 --sample 4 --duration 300
+sudo uv run python run.py --live eth0
+sudo uv run python run.py --live eth0 --sample 4 --duration 300
 
 # live capture WITHOUT privileges: a privileged helper writes a pcap stream,
 # this process only reads it (and so never needs to run as root)
 mkfifo /tmp/nids.pcap
 dumpcap -i eth0 -P -U -w /tmp/nids.pcap &
-.venv/bin/python run.py --pipe /tmp/nids.pcap
-.venv/bin/python run.py --list-interfaces   # find the right interface name
+uv run python run.py --pipe /tmp/nids.pcap
+uv run python run.py --list-interfaces   # find the right interface name
 #   --sample N   analyse 1 packet in N (line-rate guard above the ~45k
 #                pkt/s single-core ceiling; losses are reported, not hidden)
 #   --duration S stop after S seconds of stream time
