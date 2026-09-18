@@ -1,6 +1,6 @@
 """Tests for FusionEngine + DDosDetector attribution.
 Run: .venv/bin/python test_fusion.py"""
-from detectors import FusionEngine, DDosDetector
+from detectors import FusionEngine, DDosDetector, ScanDetector, ExfilDetector
 
 failures = []
 
@@ -131,6 +131,45 @@ sink8 = Sink()
 DDosDetector(sink8).on_window(w2)
 check("spoofed_unattributed",
       all(a["src"] == "*" for a in sink8.alerts))
+
+# 13. Recon detector distinguishes vertical and horizontal fan-out.
+scan_sink = Sink()
+scan = ScanDetector(scan_sink)
+vertical_pairs = {("203.0.113.20", 1000 + i) for i in range(20)}
+scan.on_window(dict(t0=40.0, t1=50.0,
+              pairs={"10.0.0.13": vertical_pairs}))
+check("vertical_scan", scan_sink.alerts
+    and scan_sink.alerts[0]["threat_class"] == "recon_vertical_scan"
+    and scan_sink.alerts[0]["dst"] == "203.0.113.20")
+
+horizontal_pairs = {(f"203.0.113.{i}", 443) for i in range(20)}
+scan.on_window(dict(t0=50.0, t1=60.0,
+              pairs={"10.0.0.13": horizontal_pairs}))
+check("horizontal_scan", scan_sink.alerts[-1]["threat_class"] ==
+    "recon_horizontal_scan" and scan_sink.alerts[-1]["dst"] == "*")
+
+# 14. Exfil detector requires a destination that is genuinely new to the
+# stream, then carries the transfer across windows until the byte threshold.
+exfil_sink = Sink()
+exfil = ExfilDetector(exfil_sink)
+from collections import defaultdict
+
+def exfil_window(idx, dst, pair_bytes, novel_dsts=()):
+    return dict(idx=idx, t0=idx * 10.0, t1=(idx + 1) * 10.0,
+            pair_bytes=defaultdict(float, pair_bytes),
+            novel_dsts=set(novel_dsts), src_bytes={"10.0.0.11": 1000})
+
+exfil.on_window(exfil_window(0, "198.51.100.10",
+                     {("10.0.0.11", "198.51.100.10"): 600000}))
+check("known_destination_not_exfil", not exfil_sink.alerts)
+exfil.on_window(exfil_window(1, "45.33.32.156",
+                     {("10.0.0.11", "45.33.32.156"): 300000},
+                     ["45.33.32.156"]))
+exfil.on_window(exfil_window(2, "45.33.32.156",
+                     {("10.0.0.11", "45.33.32.156"): 300000}))
+check("novel_destination_exfil", exfil_sink.alerts
+    and exfil_sink.alerts[0]["threat_class"] == "data_exfiltration"
+    and exfil_sink.alerts[0]["evidence"]["novel_destination"] is True)
 
 print()
 if failures:

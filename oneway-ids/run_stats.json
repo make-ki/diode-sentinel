@@ -1,1 +1,1 @@
-{"suppressed": 20, "parser": "dpkt", "pkt_per_s": 51503, "alerts": 33, "mode": "replay"}
+{"suppressed": 20, "parser": "live", "pkt_per_s": 5813, "alerts": 33, "mode": "live"}
