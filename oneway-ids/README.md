@@ -65,6 +65,13 @@ dashboard.py        zero-dependency live SOC dashboard (stdlib HTTP server;
                     daisyUI + Chart.js components vendored locally)
 ```
 
+## Documentation
+
+- [Shannon entropy in the IDS](docs/shannon-entropy.md)
+- [JA3, JA4, TLS crypto, and QUIC Initial](docs/ja3-ja4-quic.md)
+- [Run the simulation](docs/run-simulation.md)
+- [Category 5-7 models](docs/models-567.md)
+
 ## The seven requested threat classes — how each is detected one-way
 
 | PS class | Detector | One-way signal |
