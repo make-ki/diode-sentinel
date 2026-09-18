@@ -19,6 +19,15 @@ dependencies = [
 # Test suites are plain unittest scripts (test_*.py), run directly with
 # `uv run python test_*.py` -- no pytest dependency.
 
+[project.optional-dependencies]
+# Category 5-7 learned models (models_567.py): XGBoost for encrypted-session
+# metadata and exfiltration. scikit-learn and joblib are already main
+# dependencies, so this is the only extra. Rules-only replay does NOT need it.
+#   uv sync --extra ml567        (or: pip install '.[ml567]')
+ml567 = [
+    "xgboost==3.4.1",
+]
+
 [tool.uv]
 # Use the host's interpreter, not uv's managed CPython. uv's managed build is a
 # generic-Linux binary that NixOS's non-FHS loader cannot run out of the box, so

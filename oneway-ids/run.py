@@ -358,7 +358,8 @@ def load_models567(manifest_path):
     try:
         with open(manifest_path) as fh:
             manifest = json.load(fh)
-        return Models567(manifest["models"])
+        return Models567(manifest["models"],
+                         manifest.get("thresholds", {}))
     except (FileNotFoundError, KeyError, ValueError) as exc:
         print(f"[warn] category 5-7 manifest '{manifest_path}' could not be "
               f"loaded ({type(exc).__name__}: {exc}); continuing rules-only")

@@ -139,8 +139,12 @@ def _anomaly_probability(model, features):
 class Models567:
     """Optional serving bundle for category-specific model artifacts."""
 
-    def __init__(self, paths):
+    def __init__(self, paths, thresholds=None):
         self.paths = dict(paths)
+        # Operating points are measured per model by train_models_567.py's
+        # sweep and shipped in the manifest; defaulting to 0.8 keeps an
+        # old manifest working.
+        self.thresholds = dict(thresholds or {})
         self.models = {}
         self.alerted = set()
         self.exfil_totals = {}
@@ -174,7 +178,8 @@ class Models567:
             score = _probability(self.models["encrypted_xgb"],
                                  [encrypted_metadata_features(flow)])
             key = ("encrypted", flow["key"])
-            if score >= 0.8 and key not in self.alerted:
+            if score >= self.thresholds.get("encrypted_xgb", 0.8) \
+                    and key not in self.alerted:
                 self.alerted.add(key)
                 alerts.append(("encrypted_session_malware", score, {
                     "model": "xgboost",
@@ -183,7 +188,8 @@ class Models567:
         if "sequence_cnn" in self.models:
             score = self.models["sequence_cnn"].score(flow)
             key = ("sequence", flow["key"])
-            if score >= 0.8 and key not in self.alerted:
+            if score >= self.thresholds.get("sequence_cnn", 0.8) \
+                    and key not in self.alerted:
                 self.alerted.add(key)
                 alerts.append(("encrypted_session_malware", score, {
                     "model": "1d-cnn",
@@ -203,7 +209,8 @@ class Models567:
                      if name.endswith("iforest") else
                      _probability(self.models[name], features))
             key = (name, "scan", window.get("idx"), src)
-            if score >= 0.8 and key not in self.alerted:
+            if score >= self.thresholds.get(name, 0.8) \
+                    and key not in self.alerted:
                 self.alerted.add(key)
                 alerts.append(("recon_model_scan", score,
                                {"model": name, "features": features[0]}))
@@ -217,7 +224,12 @@ class Models567:
         cumulative = self.exfil_totals[pair]
         if pair not in self.exfil_novel or cumulative < EXFIL_MIN_BYTES:
             return []
-        features = exfil_features(window, src, dst, cumulative)
+        # Features use the per-window bytes -- the SAME distribution the model
+        # was trained and evaluated on. The cumulative total is only the
+        # eligibility gate; feeding it as a feature would shift the served
+        # vector outside the training range (tree models cannot extrapolate,
+        # which is what the holdout sweep exposed).
+        features = exfil_features(window, src, dst, total_bytes)
         alerts = []
         for name in ("exfil_xgb", "exfil_iforest"):
             if name not in self.models:
@@ -226,7 +238,8 @@ class Models567:
                      if name.endswith("iforest") else
                      _probability(self.models[name], features))
             key = (name, "exfil", src, dst)
-            if score >= 0.8 and key not in self.alerted:
+            if score >= self.thresholds.get(name, 0.8) \
+                    and key not in self.alerted:
                 self.alerted.add(key)
                 alerts.append(("data_exfiltration_model", score,
                                {"model": name, "features": features[0]}))

@@ -81,7 +81,8 @@ dashboard.py        zero-dependency live SOC dashboard (stdlib HTTP server;
 ```
 pyproject.toml     pinned interpreter deps (exact versions the results were
                    measured with) -- `uv sync` reproduces .venv from uv.lock
-uv.lock            locked dependency graph incl. hashes
+uv.lock            locked dependency graph incl. hashes; `--extra ml567` adds
+                   the category 5-7 model deps (xgboost)
 flake.nix          NixOS dev shell: pinned nixpkgs provides uv + libstdc++
                    (numpy/scipy/lightgbm need it; Nix keeps it off the loader
                    path) -- `nix develop`
@@ -131,7 +132,16 @@ test_bench_dga.py   31 checks: fixture-corpus loader, sampling guarantees,
                     sorted-stream ordering regression, quorum-sweep math
 BENCH-DGA.md        full-corpus results: per-family TPR, FP, quorum sweep
 BENCH-DGA-FINDINGS.md  superseded pre-full-run note; kept for the quick->full
-                   deltas (what scaling confirmed and what it revised)
+                    deltas (what scaling confirmed and what it revised)
+models_567.py       optional Tier-2 models for PS classes (d) encrypted
+                    sessions, (e) recon, (f) exfil: XGBoost / forests / a
+                    packet-sequence CNN reusing dga_cnn.py's numpy conv
+train_models_567.py trains that bundle AND evaluates the temporal holdout,
+                    sweeping each model's threshold against benign traffic;
+                    results -> models567/eval.json (see docs/models-567.md)
+models567/          trained artifacts + manifest (shipped, so --models-567
+                    works out of the box) + eval.json holdout results
+docs/               run-simulation walkthrough; models-567 measured results
 static/index.html  dashboard page
 static/app.css     layout + SOC palette (daisyUI tokens, dark/light)
 static/app.js      polling client: KPIs, charts, filters, evidence modal
@@ -149,6 +159,7 @@ and every documented result were produced with. With
 ```bash
 uv sync          # creates .venv bit-for-bit from uv.lock (numpy, scipy,
                  # scikit-learn, lightgbm, scapy, dpkt, cryptography + deps)
+uv sync --extra ml567   # + optional category 5-7 model deps (xgboost)
 ```
 
 `dga_bench.json` also records the model sha256 and both corpus-file digests, so
@@ -176,7 +187,7 @@ Detailed walkthroughs:
 
 ```bash
 uv sync                 # one-time: reproduce the pinned environment
-uv sync --extra ml567   # + optional category 5-7 model deps (xgboost)
+uv sync --extra ml567   # + category 5-7 model deps (xgboost)
 
 uv run python gen_traffic.py          # synthetic one-way capture
 uv run python run.py                  # full pipeline + report
@@ -324,10 +335,15 @@ tokens plus XGBoost over TLS/QUIC metadata. Category 6 uses Random Forest and
 Isolation Forest over scan fan-out features. Category 7 uses XGBoost and
 Isolation Forest over transfer volume, baseline, and destination novelty.
 
-Train the bundle with `train_models_567.py`; it writes a JSON manifest and
-model files under `models567/`, which is ignored by git. Serving is opt-in via
+Train the bundle with `train_models_567.py`; it writes a JSON manifest, the
+model artifacts, and a holdout evaluation under `models567/` (all shipped in
+the repo, so `--models-567` works out of the box). Serving is opt-in via
 `--models-567`; without the manifest, the original rules and existing ML tier
-continue unchanged.
+continue unchanged. The trainer evaluates the temporal holdout and sweeps each
+model's threshold against benign traffic — the measured results are published
+in `docs/models-567.md`, and they are not uniformly good news: category 5 is
+genuinely strong, categories 6 and 7 are measured-but-not-deployable on this
+capture. Read that table before quoting the tier.
 
 **Family-held-out evaluation** (the protocol the deck's slide 11 claims, and
 the only honest one for a string model — a random split lets the same family

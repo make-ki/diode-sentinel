@@ -17,7 +17,8 @@ import numpy as np
 from config import (ATTACK_HOST_ROLES, C2_IPS, EXFIL_DST_IP, PCAP_PATH,
                     SCAN_TARGET_IP, WINDOW)
 from detectors import ExfilDetector
-from models_567 import (encrypted_metadata_features, exfil_features,
+from models_567 import (_anomaly_probability, _probability,
+                        encrypted_metadata_features, exfil_features,
                         scan_features)
 from packet_sequence_cnn import PacketSequenceCnn, sequence_token
 from dga_cnn import Adam, encode_batch
@@ -33,8 +34,8 @@ def _deps():
         return joblib, xgb, IsolationForest, RandomForestClassifier
     except ImportError as exc:
         raise SystemExit(
-            "missing category 5-7 ML dependencies; install "
-            "requirements-ml.txt") from exc
+            "missing category 5-7 ML dependencies; install the 'ml567' extra: "
+            "uv sync --extra ml567  (or: pip install '.[ml567]')") from exc
 
 
 def collect(path):
@@ -75,6 +76,7 @@ def fit_sequence(flows, out_path, split_t):
             optimizer.step(model.model.params(),
                            model.model.backward(cache, y[batch]))
     model.save(out_path)
+    return model
 
 
 def fit_tree_models(flows, windows, out_dir, split_t):
@@ -140,7 +142,137 @@ def fit_tree_models(flows, windows, out_dir, split_t):
         "scan_iforest": scan_if_path,
         "exfil_xgb": exfil_path,
         "exfil_iforest": exfil_if_path,
+    }, {
+        "encrypted_xgb": encrypted,
+        "scan_rf": scan_rf,
+        "scan_iforest": scan_if,
+        "exfil_xgb": exfil,
+        "exfil_iforest": exfil_if,
     }
+
+
+# Operating-point sweep and the benign false-positive budget used to pick the
+# shipped threshold. Same discipline as the DGA CNN quorum sweep in
+# bench_dga.py: the threshold is a measured constant, and the sweep is
+# published rather than asserted. The chosen point is written into the manifest
+# and read at serve time, so what is measured is what ships.
+SWEEP = [0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]
+BENIGN_FP_BUDGET = 0.005      # max tolerable benign FP rate (0.5%)
+
+
+def _score_sweep(scores, labels):
+    """Detection rate / benign-FP tradeoff per threshold, plus the chosen point.
+
+    Returns (rows, chosen, note). Ships the most sensitive threshold whose
+    benign FP rate stays within budget; if none qualifies, ships the least
+    noisy point and says so rather than hiding the miss.
+    """
+    malicious = [s for s, y in zip(scores, labels) if y == 1]
+    benign = [s for s, y in zip(scores, labels) if y == 0]
+    rows = [{
+        "threshold": thr,
+        "detection_rate": sum(s >= thr for s in malicious) / max(len(malicious), 1),
+        "benign_fp": sum(s >= thr for s in benign),
+        "benign_fp_rate": sum(s >= thr for s in benign) / max(len(benign), 1),
+    } for thr in SWEEP]
+    if not malicious:
+        return rows, 0.8, "no malicious examples in the temporal holdout; default kept"
+    if not benign:
+        return rows, 0.8, "no benign examples in the temporal holdout; default kept"
+    in_budget = [r for r in rows if r["benign_fp_rate"] <= BENIGN_FP_BUDGET]
+    if in_budget:
+        best = max(in_budget, key=lambda r: (r["detection_rate"], -r["threshold"]))
+        return rows, best["threshold"], \
+            "most sensitive point with benign FP <= %.3f" % BENIGN_FP_BUDGET
+    quietest = min(rows, key=lambda r: (r["benign_fp_rate"], -r["threshold"]))
+    return rows, quietest["threshold"], \
+        "no threshold met the FP budget on this capture; least-noisy point shipped"
+
+
+def _summarise(name, scores, labels, rows, chosen, note):
+    at = next(r for r in rows if r["threshold"] == chosen)
+    malicious_n = sum(labels)
+    tp = sum(s >= chosen for s, y in zip(scores, labels) if y == 1)
+    fp = sum(s >= chosen for s, y in zip(scores, labels) if y == 0)
+    return {
+        "holdout_n": len(labels),
+        "malicious_n": malicious_n,
+        "benign_n": len(labels) - malicious_n,
+        "at_threshold": {
+            "threshold": chosen,
+            "true_positives": tp,
+            "false_positives": fp,
+            "false_negatives": malicious_n - tp,
+            "recall": tp / max(malicious_n, 1),
+            "precision": tp / max(tp + fp, 1),
+            "benign_fp_rate": at["benign_fp_rate"],
+        },
+        "sweep": rows,
+        "why_this_threshold": note,
+    }
+
+
+def evaluate(flows, windows, models, split_t):
+    """Score the temporal holdout (t >= split_t) with the trained models.
+
+    Measures the RAW model over the full held-out distribution -- every closed
+    flow and every window, not just the rule-gated subsets the server scores --
+    so the benign FP pressure here UPPER-BOUNDS what the deployed tier sees:
+    serving additionally requires the scan/exfil candidate gates (SCAN_MIN_PAIRS,
+    destination novelty + EXFIL_MIN_BYTES). Same separation as bench_dga.py's
+    per-string scoring vs its quorum layer: model quality here, deployed
+    behaviour in the regression suite.
+
+    Returns (report, thresholds); thresholds is the shipped operating point per
+    model, recorded in the manifest and read at serve time.
+    """
+    holdout_flows = [f for f in flows if f["t0"] >= split_t]
+    holdout_windows = [w for w in windows if w["t0"] >= split_t]
+    report, thresholds = {}, {}
+
+    # ---- category 5: encrypted sessions (two independent scorers) ----
+    for name in ("encrypted_xgb", "sequence_cnn"):
+        if name not in models:
+            continue
+        model = models[name]
+        scores, labels = [], []
+        for flow in holdout_flows:
+            scores.append(_probability(model, [encrypted_metadata_features(flow)])
+                          if name == "encrypted_xgb" else model.score(flow))
+            labels.append(int(flow["key"][2] in C2_IPS))
+        rows, chosen, note = _score_sweep(scores, labels)
+        report[name] = _summarise(name, scores, labels, rows, chosen, note)
+        thresholds[name] = chosen
+
+    # ---- categories 6 and 7: window-level scorers ----
+    scan_cases = []           # (features, label) per (window, src)
+    exfil_cases = []          # (features, label) per (window, src, dst)
+    for window in holdout_windows:
+        for src in window["pairs"]:
+            scan_cases.append((scan_features(window, src)[0],
+                               int(src in ATTACK_HOST_ROLES and
+                                   SCAN_TARGET_IP in
+                                   {d for d, _ in window["pairs"][src]})))
+        for (src, dst), total in window["pair_bytes"].items():
+            exfil_cases.append((exfil_features(window, src, dst, total)[0],
+                                int(dst == EXFIL_DST_IP)))
+
+    window_jobs = [("scan_rf", scan_cases), ("scan_iforest", scan_cases),
+                   ("exfil_xgb", exfil_cases), ("exfil_iforest", exfil_cases)]
+    for name, cases in window_jobs:
+        if name not in models:
+            continue
+        is_anomaly = name.endswith("iforest")
+        scores, labels = [], []
+        for features, label in cases:
+            scores.append(_anomaly_probability(models[name], [features])
+                         if is_anomaly else _probability(models[name], [features]))
+            labels.append(label)
+        rows, chosen, note = _score_sweep(scores, labels)
+        report[name] = _summarise(name, scores, labels, rows, chosen, note)
+        thresholds[name] = chosen
+
+    return report, thresholds
 
 
 def main():
@@ -154,13 +286,31 @@ def main():
     # retaining later traffic for temporal evaluation.
     split_t = 500.0
     sequence_path = os.path.join(args.out, "sequence_cnn.npz")
-    fit_sequence(flows, sequence_path, split_t)
-    paths = fit_tree_models(flows, windows, args.out, split_t)
+    sequence_model = fit_sequence(flows, sequence_path, split_t)
+    paths, models = fit_tree_models(flows, windows, args.out, split_t)
     paths["sequence_cnn"] = sequence_path
+    models["sequence_cnn"] = sequence_model
+
+    report, thresholds = evaluate(flows, windows, models, split_t)
+    eval_path = os.path.join(args.out, "eval.json")
+    with open(eval_path, "w") as fh:
+        json.dump({"split_t": split_t, "benign_fp_budget": BENIGN_FP_BUDGET,
+                   "models": report}, fh, indent=2)
+
     manifest = os.path.join(args.out, "manifest.json")
     with open(manifest, "w") as fh:
-        json.dump({"version": 1, "models": paths}, fh, indent=2)
+        json.dump({"version": 1, "models": paths,
+                   "thresholds": thresholds}, fh, indent=2)
+
     print(f"trained category 5-7 models -> {manifest}")
+    print(f"holdout evaluation (t >= {split_t:g}s) -> {eval_path}\n")
+    print(f"{'model':16s} {'thr':>4s} {'recall':>7s} {'prec':>7s} {'FP':>4s} "
+          f"{'benignFP':>9s}  why")
+    for name, row in report.items():
+        a = row["at_threshold"]
+        print(f"{name:16s} {a['threshold']:>4g} {a['recall']:>7.3f} "
+              f"{a['precision']:>7.3f} {a['false_positives']:>4d} "
+              f"{a['benign_fp_rate'] * 100:>8.2f}%  {row['why_this_threshold']}")
 
 
 if __name__ == "__main__":
