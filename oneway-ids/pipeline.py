@@ -25,6 +25,14 @@ class FlowAssembler:
         self.active = {}
         self.closed_count = 0
 
+    @property
+    def active_count_by_proto(self):
+        """Currently-open flows per protocol (for the metrics exporter)."""
+        counts = Counter()
+        for key in self.active:
+            counts[key[4]] += 1
+        return counts
+
     def feed(self, t, src, sport, dst, dport, proto, size, is_syn):
         key = (src, sport, dst, dport, proto)
         f = self.active.get(key)

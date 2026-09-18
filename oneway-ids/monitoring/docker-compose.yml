@@ -1,0 +1,55 @@
+# Prometheus + Grafana stack for the one-way NIDS sensor.
+#
+#   docker compose up -d          from this directory
+#
+# The stack expects the sensor to publish /metrics (run.py --metrics-port
+# 9100) on the docker host by default; see prometheus/prometheus.yml for how
+# to point it at a remote sensor.
+#
+# Grafana:  http://localhost:3000   (admin / ${GRAFANA_ADMIN_PASSWORD:-admin})
+#           the NIDS Overview dashboard is provisioned automatically.
+# Prometheus UI: http://localhost:9090
+
+name: nids-monitoring
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.13.1        # LTS line
+    container_name: nids-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    # Lets prometheus.yml scrape a sensor running on the docker host itself
+    # (run.py --metrics-port 9100) via host.docker.internal.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.4.11
+    container_name: nids-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      # land straight on the sensor dashboard
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/nids-overview.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:

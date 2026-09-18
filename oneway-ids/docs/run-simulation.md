@@ -149,6 +149,21 @@ The same model bundle can be enabled for live capture:
 uv run python run.py --live eth0 --models-567 models567/manifest.json
 ```
 
+## 10. Optional: Prometheus + Grafana
+
+Expose the sensor's internals as metrics and get the provisioned Grafana
+dashboard + alert rules (needs Docker; full details in
+[monitoring.md](monitoring.md)):
+
+```bash
+uv run python run.py --metrics-port 9100          # sensor + /metrics
+cd monitoring && docker compose up -d             # Prometheus :9090 + Grafana :3000
+```
+
+Grafana: <http://localhost:3000> (admin / admin) -- the "NIDS Overview"
+dashboard is loaded automatically. Works for live capture and replay alike;
+see monitoring.md for remote/multiple sensors.
+
 ## Troubleshooting
 
 ### `uv run python: No such file or directory`

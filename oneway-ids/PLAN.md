@@ -527,3 +527,50 @@ unavailable — documented limitation, exactly the diode constraint.
   per-source query-rate weighting, which the one-way feed can observe); the
   stream scenarios run at 1 qps through the detector directly, not through
   pcap ingest.
+
+## Sep 18 -- Prometheus/Grafana monitoring tier (metrics.py + monitoring/)
+
+- Why: the SOC dashboard is a browser-polling snapshot; it has no time-series
+  store, no history across sensor restarts, and no way to page anyone at 3am
+  when the diode receive side goes blind or the kernel starts dropping
+  frames. Prometheus + Grafana add history and alerting without touching the
+  detection path.
+- Exporter (metrics.py): stdlib-only -- the exposition format is hand-
+  rendered rather than adding prometheus_client to the pinned environment
+  (same reasoning as dashboard.py having no Flask). Attach points: counters
+  bump EAGERLY via AlertSink.subscribe (alerts are too rare to reconstruct
+  at scrape time; also survive sink.alerts being per-run), pipeline/source
+  stats are SAMPLED from the live objects at each scrape (nothing can drift
+  from what the sensor is really doing), process stats come from /proc so
+  replay-as-batch is scrapeable too. Severity labels derive through the
+  same confidence thresholds as detectors._severity, so nids_alerts_total
+  agrees with the SOC dashboard by construction. Singleton series carry a
+  sensor_pid label. Kernel drops are exported explicitly -- one-way loss is
+  invisible by definition, and "report it, nobody can" now pages someone.
+- run.py: --metrics-port N starts the exporter on live/pipe/replay paths;
+  run_live gets an on_source hook so socket stats attach the moment the
+  source exists (before the processor), and run_pipeline takes metrics=.
+- Stack (monitoring/): compose (prom/prometheus:v3.13.1 LTS,
+  grafana/grafana:12.4.11 -- both tags verified on Docker Hub), scrape
+  config with honor_timestamps: false (replayed stream time is not wall
+  time; counters reset per replay run), 8 alert rules (SensorDown,
+  SensorRestarted, KernelPacketDrops, SamplingHeavily, CriticalAlert,
+  HighAlert, AlertBurst, DgaCnnConfirmations), Grafana datasource+dashboard
+  provisioning, and a pre-built "NIDS Overview" dashboard (KPI row incl.
+  kernel-drops-are-red, class/severity mixes, ingest health, deep-
+  inspection rates, tier-2 attribution). Multi-sensor via extra targets;
+  remote-sensor notes in docs/monitoring.md.
+- Verification: test_metrics.py (19 checks: exposition well-formedness,
+  HELP/TYPE-once, label escaping, counter monotonicity, severity split at
+  the real thresholds, tier attribution, suppressed export, per-proto flow
+  gauge, source passthrough, HTTP contract, run hooks) -- green; live and
+  fusion suites still green (run.py touched); promtool inside the pinned
+  image validates prometheus.yml + all 8 rules; a Grafana 12.4.11 container
+  booted against the provisioning and served the NIDS folder + dashboard
+  (verified via /api/search, then removed); smoke scrape over HTTP shows
+  correct label sets. NOT verified: a full `docker compose up` scrape round-
+  trip against a running sensor (no sensor running in this container) --
+  every part of it is verified separately.
+- Docs: docs/monitoring.md (quick start, metric table, alert table,
+  multi-sensor, replay-as-batch semantics, no-Docker setup); README layout
+  + run commands; this entry.

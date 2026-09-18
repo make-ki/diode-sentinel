@@ -42,6 +42,7 @@ from pcap_reader import best_reader, iter_scapy, iter_dpkt
 from live_source import (AfPacketSource, CaptureConfigError,
                          CapturePermissionError, PcapStreamSource,
                          list_interfaces)
+from metrics import NidsMetrics
 
 
 # --------------------------------------------------------------------------
@@ -113,7 +114,7 @@ def run_stream(read_batch, sink, clock=None, ml_scorer=None,
 
 
 def run_pipeline(packets, sink, ml_scorer=None, tls_state_path=None,
-                 dga_cnn=None, models567=None):
+                 dga_cnn=None, models567=None, metrics=None):
     """Offline replay of a packet iterable (named entry point for parity).
 
     Passing tls_state_path opts into a warm replay: the stored JA4 inventory
@@ -122,6 +123,8 @@ def run_pipeline(packets, sink, ml_scorer=None, tls_state_path=None,
     """
     proc = StreamProcessor(sink, ml_scorer, tls_state_path=tls_state_path,
                            dga_cnn=dga_cnn, models567=models567)
+    if metrics is not None:
+        metrics.observe_processor(proc)
     if tls_state_path:
         proc.tls.load_state(tls_state_path)
     stats = run_stream(_batched(packets), sink, processor=proc)
@@ -136,7 +139,7 @@ def run_pipeline(packets, sink, ml_scorer=None, tls_state_path=None,
 def run_live(iface, sink, ml_scorer=None, state_path=STATE_PATH,
              sample=LINE_RATE_SAMPLE, duration=None, source=None, clock=None,
              batch=CAPTURE_BATCH, idle_limit=None, verbose=True, on_tick=None,
-             dga_cnn=None, models567=None):
+             dga_cnn=None, models567=None, metrics=None, on_source=None):
     """Live capture driver.
 
     source and clock are injectable so the live code path can be exercised and
@@ -150,6 +153,9 @@ def run_live(iface, sink, ml_scorer=None, state_path=STATE_PATH,
 
     anchor = source.anchor
     config.set_time_anchor(anchor)      # alerts now carry real wall-clock time
+
+    if on_source is not None:
+        on_source(source)               # metrics: attach socket/drop stats
 
     # Which clock drives the stream: an injected one (tests), the source's own
     # (socket = wall clock; pcap stream = wall clock if live, else the stream's
@@ -167,6 +173,8 @@ def run_live(iface, sink, ml_scorer=None, state_path=STATE_PATH,
     state_path = state_path or None
     proc = StreamProcessor(sink, ml_scorer, tls_state_path=state_path,
                            dga_cnn=dga_cnn, models567=models567)
+    if metrics is not None:
+        metrics.observe_processor(proc)   # scrapeable from the first tick
     warmed = proc.tls.load_state(state_path) if state_path else False
     if verbose:
         if warmed:
@@ -203,6 +211,8 @@ def run_live(iface, sink, ml_scorer=None, state_path=STATE_PATH,
         next_save[0] = proc.last_flush_t + STATE_SAVE_EVERY
         proc.tls.save_state(state_path)
         _write_sidecar("live", _stats_view(proc, time.perf_counter() - t0[0]))
+    if metrics is not None:
+        metrics.observe_processor(proc)   # keep scrape views fresh
 
     t0 = [time.perf_counter()]
     interrupted = False
@@ -371,12 +381,18 @@ def load_models567(manifest_path):
 
 def main(pcap_path=PCAP_PATH, parity=False, ml_model=None, live=None,
          pipe=None, state_path=None, sample=LINE_RATE_SAMPLE, duration=None,
-         no_state=False, dga_model=None, models567_manifest=None):
+         no_state=False, dga_model=None, models567_manifest=None,
+         metrics_port=None):
     dga_cnn = load_dga_cnn(dga_model)
     models567 = load_models567(models567_manifest)
     if live or pipe:
         sink = AlertSink(truncate=False)       # live: append, dashboard tails
         scorer = load_scorer(sink, ml_model)
+        metrics = NidsMetrics(sink)
+        if metrics_port:
+            print(f"metrics: http://localhost:{metrics_port}/metrics "
+                  f"(Prometheus scrape endpoint)")
+            metrics.serve(metrics_port)
         target = pipe or live
         try:
             source = PcapStreamSource(pipe, sample=sample,
@@ -385,7 +401,8 @@ def main(pcap_path=PCAP_PATH, parity=False, ml_model=None, live=None,
             run_live(target, sink, ml_scorer=scorer, source=source,
                      state_path=None if no_state else (state_path or STATE_PATH),
                      sample=sample, duration=duration, dga_cnn=dga_cnn,
-                     models567=models567)
+                     models567=models567, metrics=metrics,
+                     on_source=metrics.observe_source)
         except (CaptureConfigError, CapturePermissionError) as e:
             print(f"[error] {e}", file=sys.stderr)
             return 2
@@ -397,11 +414,17 @@ def main(pcap_path=PCAP_PATH, parity=False, ml_model=None, live=None,
     for name, reader in backends:
         sink = AlertSink()
         scorer = load_scorer(sink, ml_model)
+        metrics = NidsMetrics(sink)
+        if metrics_port:
+            print(f"metrics: http://localhost:{metrics_port}/metrics "
+                  f"(Prometheus scrape endpoint)")
+            metrics.serve(metrics_port)
         try:
             reports[name] = run_pipeline(reader(pcap_path), sink, scorer,
                                          tls_state_path=state_path,
                                          dga_cnn=dga_cnn,
-                                         models567=models567)
+                                         models567=models567,
+                                         metrics=metrics)
         except ImportError:
             print(f"[skip] {name} not installed")
             continue
@@ -449,6 +472,9 @@ def _cli(argv=None):
     p.add_argument("--models-567", metavar="MANIFEST",
                    help="enable category 5-7 XGBoost/forest/CNN models from "
                         "a JSON manifest")
+    p.add_argument("--metrics-port", type=int, default=None, metavar="PORT",
+                   help="serve Prometheus /metrics on this port "
+                        "(see monitoring/ for the scrape+Grafana stack)")
     return p
 
 
@@ -471,7 +497,8 @@ def _run_cli(argv=None):
                 sample=args.sample, duration=args.duration,
                 no_state=args.no_state,
                 dga_model="model_dga_cnn.npz" if args.dga_cnn else None,
-                models567_manifest=args.models_567)
+                models567_manifest=args.models_567,
+                metrics_port=args.metrics_port)
 
 
 if __name__ == "__main__":

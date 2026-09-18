@@ -107,6 +107,10 @@ ml_tier.py         flow features + LightGBM scorer (train/serve parity
                    by construction)
 train_ml.py        temporal-split training + honest evaluation
 dashboard.py       stdlib live SOC dashboard
+metrics.py         stdlib Prometheus exporter (nids_* series on /metrics)
+test_metrics.py    19 tests: exposition format, counters, HTTP, run hooks
+monitoring/        dockerized Prometheus + Grafana: provisioned dashboard,
+                   alert rules -- see docs/monitoring.md
 run.py             end-to-end runner (--live, --parity, --ml, --state)
 test_tls_meta.py   42 tests: parsing, JA4/JA3 golden vectors, reassembly,
                    seq tracking, detector units
@@ -208,6 +212,10 @@ uv run python bench_dga.py --quick    # 20k subsample, ~40 s
 uv run python test_bench_dga.py       # 31 unit tests (benchmark harness)
 uv run python test_dashboard.py       # dashboard API + asset tests
 uv run python dashboard.py            # live dashboard on :8600
+uv run python run.py --metrics-port 9100   # + Prometheus /metrics
+                                       # then: docker compose -f
+                                       # monitoring/docker-compose.yml up -d
+                                       # (Grafana :3000, docs/monitoring.md)
 MESSY=1 uv run python gen_traffic.py  # FP-pressure traffic variant
 
 # live capture by reading the socket directly (needs CAP_NET_RAW)

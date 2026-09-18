@@ -1,0 +1,112 @@
+# Alert rules for the one-way NIDS.
+#
+# Philosophy mirrors the sensor's own: loss on a one-way feed is invisible by
+# definition, so drops are ALERTED ON, not just charted (README: "if we do not
+# report it, nobody can"). Detection alerts ride the same severity scale the
+# AlertSink emits (critical/high/medium/low).
+
+groups:
+  # ---------------------------------------------------------------- sensor --
+  - name: nids.availability
+    interval: 30s
+    rules:
+      - alert: NidsSensorDown
+        expr: up{job="nids"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "NIDS sensor not scrapeable ({{ $labels.instance }})"
+          description: >-
+            Prometheus has failed to scrape {{ $labels.instance }} for 2
+            minutes. The receive side of the diode is unmonitored -- restart
+            the sensor (run.py --metrics-port 9100) and check host
+            connectivity.
+
+      - alert: NidsSensorRestarted
+        expr: changes(nids_process_start_time_seconds[10m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "NIDS sensor process restarted"
+          description: >-
+            The sensor process started a new life in the last 10 minutes.
+            Expected around replay runs (counters reset with every run);
+            on a live capture it means the capture died and came back --
+            check for warm-start lines in the sensor log.
+
+  # -------------------------------------------------------- ingest health --
+  - name: nids.ingest
+    interval: 30s
+    rules:
+      - alert: NidsKernelPacketDrops
+        expr: increase(nids_kernel_dropped_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kernel ring-buffer drops on {{ $labels.instance }}"
+          description: >-
+            {{ $value | humanize }} frames were dropped by the kernel in 5m
+            -- traffic LOST before analysis, invisible to every detector.
+            Raise SO_RCVBUF or increase --sample (see run.py --sample).
+
+      - alert: NidsSamplingHeavily
+        expr: |
+          sum(increase(nids_frames_sampled_out_total[10m]))
+            / clamp_min(sum(increase(nids_frames_analysed_total[10m])), 1) > 1
+        labels:
+          severity: info
+        annotations:
+          summary: "Sampler skipping more frames than it analyses"
+          description: >-
+            The 1-in-N line-rate guard is discarding over half the frames.
+            Rate estimates stay representative by design, but coverage is
+            reduced -- lower --sample if the link grew.
+
+  # ----------------------------------------------------------- detections --
+  - name: nids.detections
+    interval: 15s
+    rules:
+      - alert: NidsCriticalAlert
+        expr: increase(nids_alerts_total{severity="critical"}[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical NIDS alert ({{ $labels.threat_class }})"
+          description: >-
+            The fusion engine emitted a critical {{ $labels.threat_class }}
+            verdict in the last 5 minutes ({{ $value | humanize }}). Open the
+            SOC dashboard and inspect the evidence drawer for the flow.
+
+      - alert: NidsHighAlert
+        expr: increase(nids_alerts_total{severity="high"}[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "High-severity NIDS alert ({{ $labels.threat_class }})"
+          description: >-
+            {{ $value | humanize }} high-severity {{ $labels.threat_class }}
+            alerts in the last 5 minutes.
+
+      - alert: NidsAlertBurst
+        expr: increase(nids_alerts_total[10m]) > 25
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alert burst: {{ $value | humanize }} alerts in 10m"
+          description: >-
+            Alert rate jumped well above this sensor's baseline. Either an
+            incident is unfolding or a new host just entered the stream --
+            check the threat-class mix before assuming attack.
+
+      - alert: NidsDgaCnnConfirmations
+        expr: increase(nids_cnn_alerts_total[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "DGA character-CNN confirmations firing"
+          description: >-
+            The Tier-2 CNN confirmed {{ $value | humanize }} DGA domain(s)
+            the lexical gate alone would have passed. Quorum-gated, so a
+            single host is making multiple flagged queries.
