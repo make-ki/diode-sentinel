@@ -272,10 +272,12 @@ usual crutch a DGA detector leans on.
 **(i) There is no `ddos_syn_flood` in the shipped alert file — and that is
 correct.** The spoofed-source branch (distinct source IPs ≥ 500) is checked
 first and is strictly *more specific*, so a spoofed SYN flood is reported
-**once** as `ddos_volumetric_spoofed`, with `syn_ratio: 0.937` right there in
-the evidence (both class-(a) alerts carry `distinct_src_ips` 1535 / 1495 and
-`syn_ratio` 0.935 / 0.937). Say that out loud *before* someone greps for
-`syn_flood` and finds nothing.
+**once** as `ddos_volumetric_spoofed`, with the `syn_ratio` right there in the
+evidence (on the shipped capture, ~0.93 for both class-(a) alerts, each also
+carrying `distinct_src_ips` in the ~1,500 range — the exact counts shift with
+the generator's spoofed-source draw, so read them off the alert, don't memorise
+them). Say that out loud *before* someone greps for `syn_flood` and finds
+nothing.
 
 **(ii) "Is entropy actually used in the decision?"** Our decision variable is
 **distinct-source cardinality**; Shannon entropy of the source distribution is
@@ -331,7 +333,8 @@ works that out after you have waved it around will trust the rest of your
 numbers less.
 
 ### Other numbers, with their mandatory qualifiers
-- **6/6** PS threat classes covered, **12 distinct threat classes** emitted,
+- **6/6** PS threat classes covered, **12 distinct threat classes** emitted by
+  the rules tier (13 including the ML tier's `ml_flow_suspicious`),
   45 alerts on the default capture (67 with the ML tier), plus 20 benign
   periodic events suppressed by the allowlist.
 - **False positives — the measured answer, not the headline you want.** On the
