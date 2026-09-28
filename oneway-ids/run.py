@@ -478,6 +478,18 @@ def _cli(argv=None):
     return p
 
 
+def _looks_like_path(name):
+    """True if a --live argument is a file/FIFO rather than an interface name.
+
+    An interface is a bare name that exists under /sys/class/net; anything with
+    a path separator, or that already exists on disk, is treated as a capture
+    file or FIFO and read through the unprivileged pcap-stream source.
+    """
+    if os.sep in name or (os.altsep and os.altsep in name):
+        return True
+    return os.path.exists(name)
+
+
 def _run_cli(argv=None):
     args = _cli(argv).parse_args(argv)
     if args.list_interfaces:
@@ -491,6 +503,16 @@ def _run_cli(argv=None):
         print("[error] --live and --pipe are mutually exclusive",
               file=sys.stderr)
         return 2
+    # --live on a file or FIFO path does not need CAP_NET_RAW: route it to the
+    # pcap-stream source instead of a raw socket. This is what makes a demo
+    # work on stage without sudo -- `--live traffic.pcap` replays through the
+    # SAME live driver (stream clock, drop accounting, unbounded-output sink)
+    # that a real interface uses, just with no privilege required. A genuine
+    # interface name (no path separator, exists in /sys/class/net) still takes
+    # the AF_PACKET path.
+    if args.live and _looks_like_path(args.live):
+        args.pipe = args.live
+        args.live = None
     return main(args.pcap, parity=args.parity,
                 ml_model="model_ml.txt" if args.ml else None,
                 live=args.live, pipe=args.pipe, state_path=args.state,

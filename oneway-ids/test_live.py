@@ -556,6 +556,17 @@ check("fifo_path_counts",
       == (off["npkt"], off["flows"], off["windows"]),
       f"{fifo_res['npkt']} vs {off['npkt']}")
 
+# --live on a file/FIFO must route to the unprivileged pcap-stream source,
+# not a raw socket: a demo on stage cannot sudo. An interface name must still
+# take the AF_PACKET path.
+from run import _looks_like_path
+check("live_arg_routes_file_to_stream", _looks_like_path("traffic.pcap"))
+check("live_arg_routes_fifo_to_stream", _looks_like_path(tmpf("x.pcap")))
+check("live_arg_routes_abs_path", _looks_like_path("/tmp/nids/nope.pcap"))
+check("live_arg_interface_not_a_path", not _looks_like_path("eth0"))
+check("live_arg_missing_iface_not_a_path",
+      not _looks_like_path("zzz_definitely_not_an_iface"))
+
 print()
 if failures:
     print(f"{len(failures)} FAILURES: {failures}")
