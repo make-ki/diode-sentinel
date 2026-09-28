@@ -176,7 +176,7 @@ class FakeSource:
 # a volumetric burst finishing mid-window and then silence: 1200 SYNs from 600
 # distinct (spoofed) sources inside window idx 1
 flood = [(10.0 + i * 0.001, f"172.16.{i // 256}.{i % 256}", "203.0.113.10",
-          "tcp", 40000 + (i % 1000), 443, 60, True, b"", None, i)
+          "tcp", 40000 + (i % 1000), 443, 60, True, b"", None, i, None)
          for i in range(1200)]
 
 
@@ -317,7 +317,7 @@ check("warm_start_still_detects_novel", len(d2.sink.alerts) == 1
 chk_state = tmpf("checkpoint.json")
 chk_packets = [(0.0 + i * 0.05, f"10.0.0.{20 + i % 5}", "93.184.216.1", "tcp",
                 40000 + (i % 500), 443, 200, i % 50 == 0, b"\x16\x03\x01", None,
-                i * 100) for i in range(600)]
+                i * 100, None) for i in range(600)]
 chk_src = FakeSource(chk_packets, stop_when_done=True)
 run_live("fake0", AlertSink(tmpf("chk.jsonl"), truncate=False),
          state_path=chk_state, source=chk_src, clock=chk_src.now, batch=1,
