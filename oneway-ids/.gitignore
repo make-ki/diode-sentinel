@@ -1,1 +1,41 @@
-.bench/
+# --- secrets / local state ---
+.env
+.env-ml
+*.key
+*.pem
+*.crt
+
+# --- runtime artifacts (never commit; they are outputs, not source) ---
+alerts.jsonl
+nids_state.json
+run_stats.json
+*.pcap
+*.pcapng
+!tests/**/*.pcap
+
+# --- model artifacts (regenerate with train_*.py; do not version) ---
+model_*.txt
+model_*.npz
+models567/*.joblib
+
+# --- python ---
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# --- zeek run outputs ---
+*.log
+!docs/**/*.log
+
+# --- scratch / agent loops ---
+.loop_results/
+.loop_backup/
+.regression/*.tmp
+NOTES.local.md
+handoff.local.md

@@ -50,11 +50,65 @@ def _spoofed_ip():
                             random.randint(0, 255), random.randint(1, 254))
 
 
+_TCP_SEQ = {}
+_TCP_ACK = {}
+_TCP_CONN_FOR = {}
+_TCP_NEXT_CONN = 0
+
+
 def _tcp(t, src, dst, sport, dport, size, flags, payload=None):
     if payload is None:
         payload = b"\x00" * max(0, size - 54)   # Eth(14)+IP(20)+TCP(20)
+    # A SYN must never carry a payload: real TCP stacks do not do this and
+    # it corrupts one-way analysis (Zeek logs SYN_with_data and the stream
+    # reassembler then misaligns, hiding the ClientHello from the SSL analyzer).
+    if flags == "S":
+        payload = b""
+    # Sequence numbers must advance by payload length, or every segment
+    # appears to occupy the same sequence space and a reassembler treats
+    # later segments as retransmissions/overlaps that clobber the ClientHello.
+    # A SYN consumes one sequence number itself, so the first data byte of a
+    # connection is at ISN + 1. Data must also carry a non-zero ACK once the
+    # handshake has progressed, or Zeek classifies the segment as
+    # data_before_established and will not hand it to the SSL analyzer.
+    # A real stack also picks a random ISN: leaving it at 0 makes Zeek compute
+    # the first data byte's relative sequence as 0, i.e. the SYN's own number.
+    #
+    # The connection id includes a monotonic counter, not just the 4-tuple:
+    # _sport() draws from a 20k range, so source ports collide across the run
+    # and a reused (src,dst,sport,dport) would otherwise inherit the previous
+    # flow's sequence state and replay a wrong ISN.
+    global _TCP_NEXT_CONN
+    key = _TCP_NEXT_CONN if flags == "S" else _TCP_CONN_FOR.get((src, dst, sport, dport), -1)
+    if flags == "S":
+        _TCP_NEXT_CONN += 1
+        key = _TCP_NEXT_CONN
+        _TCP_CONN_FOR[(src, dst, sport, dport)] = key
+        # A SYN occupies its own sequence number, so the first data byte of the
+        # connection is ISN + 1. Emitting data at the ISN itself makes Zeek
+        # compute a relative sequence of 0, i.e. the SYN's sequence number,
+        # and it classifies the segment as data_before_established. Record the
+        # ISN as the value the SYN emits, then advance the counter so the
+        # following data segment reads ISN + 1.
+        isn = random.randrange(1 << 16, 1 << 31)
+        _TCP_SEQ[key] = isn + 1
+        _TCP_ACK[key] = 0
+        seq, ack = isn, 0
+    else:
+        # NOTE: seq/ack are read AFTER the SYN advanced the counter, otherwise
+        # the first data segment inherits the SYN's sequence number verbatim.
+        seq = _TCP_SEQ.get(key, 1)
+        ack = _TCP_ACK.get(key, 1)
+    if payload:
+        # Data after a SYN acknowledges the SYN's sequence number, so the ACK
+        # field must be non-zero on the first data segment or Zeek treats the
+        # stream as never having left the handshake.
+        ack = max(ack, 1)
+        _TCP_SEQ[key] = seq + len(payload)
+        _TCP_ACK[key] = ack
     events.append((t, Ether() / IP(src=src, dst=dst) /
-                   TCP(sport=sport, dport=dport, flags=flags) / Raw(payload)))
+                   TCP(sport=sport, dport=dport, flags=flags, seq=seq, ack=ack) /
+                   Raw(payload)))
 
 
 def _udp(t, src, dst, sport, dport, size):
