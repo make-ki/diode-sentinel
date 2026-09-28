@@ -69,9 +69,10 @@ relax `requires-python`.
   pipeline never emits — a test that validated a mock.
 - Regression gates: `.regression/alerts_rules.reference.jsonl` and
   `alerts_ml.reference.jsonl` must stay **byte-identical**. They are the
-  reproducibility claim.
-- The generator change in this session altered packet counts; those reference
-  files are now stale and must be regenerated before any claim is repeated.
+  reproducibility claim. They were regenerated against the post-realism
+  generator and re-verified byte-identical for both tiers (45 rules / 67 ML);
+  the earlier staleness is resolved. Re-verify after any detector or generator
+  change.
 
 ## Security considerations
 
@@ -88,7 +89,10 @@ relax `requires-python`.
 
 Results that are real and defensible:
 
-- ~44k pkt/s rules-only on one core, ~24k with the ML tier; 2,113x real-time.
+- Throughput, re-measured over repeated runs on one core: rules tier
+  ~48.6k pkt/s (47.9k-49.0k, tight) ~= 205 Mbps; ML tier 23k-31k pkt/s
+  (quoted as a range -- it is not reproducible as a single number); 2,377x
+  real-time on the sparse synthetic capture. Mean packet 527.3 B.
 - dpkt and scapy backends produce byte-identical alert distributions.
 - The DGA char-CNN is a genuine numpy `conv1d` whose analytic gradients match
   finite differences to 7e-09. Family-held-out evaluation against a real
@@ -108,7 +112,20 @@ Results that are real and defensible:
 Results that are NOT true — do not put them on a slide:
 
 - **"Zero false positives"** — false. The MESSY run emits a critical
-  `data_exfiltration` FP at 0.95 on the benign cloud-backup host.
+  `data_exfiltration` FP at 0.95 on the benign cloud-backup host (10.0.0.6).
+  Verified: regenerating with `MESSY=1` and running rules-only puts exactly one
+  critical FP plus one medium `tls_novel_fingerprint` on designated-benign
+  hosts. The rules FP is the honest cost of a one-way exfil detector.
+- **The ML tier collapses under FP pressure** — also verified. On the same
+  MESSY capture `--ml` adds ~74 `ml_flow_suspicious` alerts at confidence 1.0,
+  almost all on benign hosts (IoT telemetry, backup, ordinary browsing). The
+  supervised flow model does not generalise to benign traffic shapes absent
+  from its training capture. Never present `--ml` as a robust primary tier;
+  it is quorum-gated for this reason.
+- **`--models-567` is not a headline** — `models567/eval.json`: `encrypted_xgb`
+  and `sequence_cnn` reach recall 1.000 at 0 FP, but `scan_rf`/`scan_iforest`
+  have zero malicious holdout examples (untestable) and `exfil_xgb`/
+  `exfil_iforest` miss all 4 malicious windows (recall 0.000).
 - **"7 / 7 threat classes"** — the PS names six. The seventh conflates the
   fusion layer with a detector.
 - **DNS tunnelling detection** — **now exists** (`DGADetector._tunnel_check`).
