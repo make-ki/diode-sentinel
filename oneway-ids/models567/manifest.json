@@ -11,8 +11,8 @@
   "thresholds": {
     "encrypted_xgb": 0.5,
     "sequence_cnn": 0.5,
-    "scan_rf": 0.8,
-    "scan_iforest": 0.8,
+    "scan_rf": 0.5,
+    "scan_iforest": 0.99,
     "exfil_xgb": 0.5,
     "exfil_iforest": 0.95
   }

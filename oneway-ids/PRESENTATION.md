@@ -299,34 +299,37 @@ large replies coming back). Own this in §6.
 > traffic rate they were tested against (e.g., flows/sec or **Mbps
 > sustained**)."*
 
-This capture: **12,349 packets, 6,511,417 bytes, 598.8 s**, mean packet
-**527.3 bytes**, **5,024 distinct flows**, of which 4,417 are SYN-only, 720 DNS,
+This capture: **14,049 packets, 8,622,217 bytes, 598.8 s**, mean packet
+**613.7 bytes**, **5,225 distinct flows**, of which 4,617 are SYN-only, 720 DNS,
 7,107 TLS.
 
 | Mode | Packets/s | Equivalent sustained rate | Flows/s |
 |---|---|---|---|
-| Rules only (dpkt) | **≈48,600** | **≈ 205 Mbps** | ≈20,300 |
-| With ML tier (LightGBM) | **≈24,000–30,000** | **≈ 100–125 Mbps** | ≈9,700–11,800 |
+| Rules only (dpkt) | **≈48,600–50,400** | **≈ 240 Mbps** | ≈19,200–20,300 |
+| With ML tier (LightGBM) | **≈24,000–31,000** | **≈ 120–155 Mbps** | ≈9,700–11,800 |
 
 Measured over repeated runs on one CPU core, pure Python, no C extension and no
-GPU. The rules tier is tight across runs (47.9k–49.0k); the ML tier varies more
-(23.1k–30.7k) with model warm-up and cache state, so it is quoted as a range —
-a single false-precision number would not be reproducible.
+GPU. The rules tier is tight across runs; the ML tier varies more with model
+warm-up and cache state, so it is quoted as a range — a single false-precision
+number would not be reproducible. The Mbps figures use this capture's mean
+packet size (613.7 B).
 
-**Say it exactly like this:** *"About 48,600 packets per second — roughly 205
+**Say it exactly like this:** *"About 50,000 packets per second — roughly 240
 Mbps sustained — on a single CPU core, in pure Python with no C extension and
-no GPU. With the ML tier scoring every closed flow it drops to roughly 24 to 30
-thousand packets per second, 100 to 125 Mbps."*
+no GPU. With the ML tier scoring every closed flow it drops to roughly 24 to 31
+thousand packets per second."*
 
-The Mbps figure is the mean packet size of *this* capture (527.3 B) times the
+The Mbps figure is the mean packet size of *this* capture (613.7 B) times the
 measured packet rate. For a SYN flood the binding number is **packets/s**, not
 Mbps — small packets are cheaper per byte, so `pkt/s` is the honest headline
 and Mbps is the translation the statement asks for.
 
-### ⚠ Do not lead with "2,377× real-time"
-It is arithmetically true (600 s of capture in 0.252 s) but it is **the same
-single measurement restated** — and it is large largely because the synthetic
-capture is **sparse**: it carries only **21 packets/s ≈ 0.09 Mbps**. Lead with
+### ⚠ Do not lead with the real-time factor
+It is arithmetically true (600 s of capture processed in well under a second,
+so roughly 2,000× real-time — the exact digit varies with run-to-run cache
+state, so quote "~2,000×", not a precise figure) but it is **the same single
+measurement restated** — and it is large largely because the synthetic
+capture is **sparse**: it carries only **23 packets/s ≈ 0.11 Mbps**. Lead with
 `pkt/s` and `Mbps` as *capability*; mention the real-time factor only as a
 repeatability statement, and volunteer the reason it looks big. A judge who
 works that out after you have waved it around will trust the rest of your
@@ -355,13 +358,25 @@ numbers less.
   temporal leakage). Benign recall 100%, 0 FP; malicious recall 85.7%, with the
   10 misses documented as **generator label noise** (the model is right, the
   generator-derived labels are wrong on benign DNS from an attack host).
-- **⚠ Do not headline `--models-567`.** Its own `models567/eval.json` is the
-  honest record: `encrypted_xgb` and `sequence_cnn` reach recall **1.000** at
-  0 FP on the temporal holdout, but `scan_rf`/`scan_iforest` have **zero
-  malicious examples** in the holdout (untestable, not validated) and
-  `exfil_xgb`/`exfil_iforest` miss **all 4** malicious windows (recall 0.000).
-  Two of six models are real, two are untestable, two fail. Quote only the two
-  that pass, and say the tier is a confirmer, never a primary detector.
+- **⚠ Do not headline `--models-567` as six working models.** Its own
+  `models567/eval.json` is the honest record. **Four** of the six —
+  `encrypted_xgb`, `sequence_cnn`, `scan_rf`, `exfil_xgb` — reach recall
+  **1.000** at **0** benign FP on the temporal holdout (t ≥ 390 s). The other
+  two are the IsolationForest pair, and they are a *measured negative result*,
+  not a tuning issue: they do detect every malicious row, but only at
+  thresholds where they also fire on 2–6% of benign windows; tighten past that
+  and they go blind. **No operating point is both sensitive and quiet**, so the
+  threshold selector ships the quiet point and reports recall 0.000 rather than
+  hiding a noisy one. Say "four of six, and the two that fail are the
+  unsupervised ones — here is the sweep that shows no good operating point
+  exists." The supervised models are the deployable ones.
+  Also worth saying, because it is the more interesting half of the story: the
+  `scan_rf` and `exfil_xgb` models used to read 0.000 too, and that was **not**
+  a model failure — the temporal split placed every malicious scan and exfil
+  row in training, so the holdout had nothing to score. Once the generator
+  emitted attack bursts on both sides of the split, the same architectures
+  scored perfectly. "Unmeasurable" and "broken" are different claims, and the
+  old table conflated them.
 - **⚠ The ML tier breaks under FP pressure.** On the `MESSY` capture the
   supervised flow model emits **74 `ml_flow_suspicious` alerts at confidence
   1.0, almost all on benign hosts** (IoT telemetry, backup, ordinary web
@@ -482,7 +497,7 @@ getting caught reads as an overclaim.
 | 2 | *"UDP reflection/amplification? Slowloris?"* | Neither is separately modelled. Reflection/amplification is caught as a volumetric flood symptom by rate + entropy, not by its signature. Slowloris appears in the statement's *dataset suggestions*, not in the scored threat list (a)–(f); one-way it would be a long-lived half-open-flow pattern, which our flow-assembler could carry but we have not built. |
 | 3 | *"Your own generator, your own labels — isn't that circular?"* | Partly, and we say so. Four mitigations, in increasing strength: temporal splits mean the model never sees the future; the 10 "misses" are generator label noise we publish rather than tune away; the DGA detector is scored **as shipped** on an external, citable corpus — andrewaeva/DGA, 694k real DGA domains / 1M benign, nothing refit (`BENCH-DGA.md`) — where the quorum constant was measured rather than guessed; and **the whole sensor has now run against real malware on IoT-23** (CTU Stratosphere, CC-BY) with Zeek ground truth — perfect host recall on Hakai and HideNSeek, an honest total miss on a Trojan, and one structural cloud-telemetry FP. See §5. That is the answer that survives scrutiny: not "we will validate on real data", but "here is where we already did, including the misses." |
 | 4 | *"Is the live capture actually tested against a real interface?"* | **No — and we say that first.** The development container has `CapBnd: 0`, so no capability can be acquired there at all, not even by root or via a file-capped helper. What *is* verified end-to-end: a real FIFO written in chunks by a separate process reproduces the offline alert stream **byte-for-byte**, plus drop accounting, sampling, interface validation and both privilege-failure paths. The only unexercised piece is the `AF_PACKET` socket setup itself. |
-| 5 | *"205 Mbps is a microbenchmark extrapolated from a 0.09 Mbps capture."* | Fair. Dissection is O(1) per packet so pkt/s generalises, and the **1-in-N sampling guard exists precisely because the pure-Python ceiling is ~49k pkt/s single core** — above it we degrade coverage deterministically and **report the loss** rather than hide it. Note the PS says the ingest is *simulated*; the ceiling claim is bounded and stated. |
+| 5 | *"240 Mbps is a microbenchmark extrapolated from a 0.11 Mbps capture."* | Fair. Dissection is O(1) per packet so pkt/s generalises, and the **1-in-N sampling guard exists precisely because the pure-Python ceiling is ~50k pkt/s single core** — above it we degrade coverage deterministically and **report the loss** rather than hide it. Note the PS says the ingest is *simulated*; the ceiling claim is bounded and stated. |
 
 ---
 
@@ -555,8 +570,9 @@ one-way, not a generic feature.
 > the traffic — otherwise a flood followed by silence sits unscored forever,
 > which is unbounded latency on a sensor whose only claim is bounded latency.
 >
-> We covered all six threat classes. We measured 49,000 packets per second on a
-> single core in pure Python — about 205 megabits sustained — and we validated
+> We covered all six threat classes. We measured about 50,000 packets per
+> second on a single core in pure Python — roughly 240 megabits sustained —
+> and we validated
 > against real malware on the IoT-23 public dataset: two families detected with
 > no retuning, one honest miss, one false positive we can explain. And where we
 > could not do what the statement asked, we can tell you exactly

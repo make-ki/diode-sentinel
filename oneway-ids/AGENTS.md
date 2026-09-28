@@ -122,10 +122,15 @@ Results that are NOT true — do not put them on a slide:
   supervised flow model does not generalise to benign traffic shapes absent
   from its training capture. Never present `--ml` as a robust primary tier;
   it is quorum-gated for this reason.
-- **`--models-567` is not a headline** — `models567/eval.json`: `encrypted_xgb`
-  and `sequence_cnn` reach recall 1.000 at 0 FP, but `scan_rf`/`scan_iforest`
-  have zero malicious holdout examples (untestable) and `exfil_xgb`/
-  `exfil_iforest` miss all 4 malicious windows (recall 0.000).
+- **`--models-567` is four working models and two honest failures** —
+  `models567/eval.json` (temporal split t>=390): `encrypted_xgb`,
+  `sequence_cnn`, `scan_rf` and `exfil_xgb` all reach recall 1.000 at 0 benign
+  FP. Both `IsolationForest` models report 0.000 because no operating point is
+  simultaneously sensitive and within the 0.5% benign budget -- the sweep
+  shows them firing on 2-6% of benign windows at any threshold that detects.
+  They are a measured negative result, not a tuning bug. Do not present the
+  tier as six working models; present it as four plus a documented negative
+  result. The split point is load-bearing: see `docs/models-567.md`.
 - **"7 / 7 threat classes"** — the PS names six. The seventh conflates the
   fusion layer with a detector.
 - **DNS tunnelling detection** — **now exists** (`DGADetector._tunnel_check`).

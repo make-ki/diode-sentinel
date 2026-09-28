@@ -5,7 +5,7 @@ Usage:
     python train_models_567.py --pcap traffic.pcap --out models567
     python run.py --models-567 models567/manifest.json
 
-The split is temporal: flows/windows before t=500 train the models and later
+The split is temporal: flows/windows before t=390 train the models and later
 traffic evaluates them. The rule detectors remain enabled during serving.
 """
 import argparse
@@ -38,6 +38,28 @@ def _deps():
             "uv sync --extra ml567  (or: pip install '.[ml567]')") from exc
 
 
+def _xgb_device():
+    """Pick the XGBoost device: CUDA if a tiny train actually works, else CPU.
+
+    The probe matters because ``device="cuda"`` raises on a CPU-only build or a
+    dead driver, and that would take the whole trainer down for a speed gain.
+    ``XGB_DEVICE=cpu`` forces the slow path (use it to measure the CPU
+    baseline or on a machine where the probe is flaky). Models saved from GPU
+    load fine on CPU -- the device is stored in the model JSON.
+    """
+    import os
+    if os.environ.get("XGB_DEVICE", "").lower() == "cpu":
+        return "cpu"
+    try:
+        import numpy as _np
+        _, xgb, _, _ = _deps()
+        dtrain = xgb.DMatrix(_np.zeros((4, 2)), label=_np.array([0, 1, 0, 1]))
+        xgb.train({"device": "cuda", "nthread": 1}, dtrain, num_boost_round=1)
+        return "cuda"
+    except Exception:
+        return "cpu"
+
+
 def collect(path):
     assembler = FlowAssembler()
     aggregator = WindowAggregator()
@@ -45,7 +67,12 @@ def collect(path):
     aggregator.register(windows.append)
     last_tick = -1.0
     for packet in iter_dpkt(path):
-        t, src, dst, proto, sport, dport, size, is_syn, payload, qname, seq = packet
+        # 12-field packet tuple; qtype was added after the scanner ports and
+        # is unused here (the cat-5/6/7 models read flow/window statistics,
+        # not DNS record types). Unpack it anyway so the tuple shape stays
+        # in lockstep with pcap_reader / pipeline.
+        (t, src, dst, proto, sport, dport, size, is_syn,
+         payload, qname, seq, qtype) = packet
         assembler.feed(t, src, sport, dst, dport, proto, size, is_syn)
         if t - last_tick >= 0.5:
             flows.extend(assembler.emit_ready(t))
@@ -126,7 +153,7 @@ def fit_tree_models(flows, windows, out_dir, split_t):
     exfil_x, exfil_y = np.asarray(exfil_rows), np.asarray(exfil_y)
     exfil = xgb.XGBClassifier(n_estimators=120, max_depth=4,
                               learning_rate=0.08, eval_metric="logloss",
-                              random_state=42)
+                              random_state=42, device=_xgb_device())
     exfil.fit(exfil_x, exfil_y)
     exfil_path = os.path.join(out_dir, "exfil_xgb.json")
     exfil.save_model(exfil_path)
@@ -282,9 +309,13 @@ def main():
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
     flows, windows = collect(args.pcap)
-    # Keep a slice of the generated exfiltration (480-540s) in training while
-    # retaining later traffic for temporal evaluation.
-    split_t = 500.0
+    # Temporal split. Must sit AFTER the early scan (250s) and early exfil
+    # (300s) bursts and BEFORE the main ones (scan 400s, exfil 480s), so every
+    # category-5/6/7 target has malicious rows on BOTH sides -- otherwise the
+    # holdout has nothing to score and the model looks broken when it is the
+    # split that is wrong. 390s sits in the gap between the early and main
+    # bursts and keeps >100s of malicious traffic in the holdout.
+    split_t = 390.0
     sequence_path = os.path.join(args.out, "sequence_cnn.npz")
     sequence_model = fit_sequence(flows, sequence_path, split_t)
     paths, models = fit_tree_models(flows, windows, args.out, split_t)

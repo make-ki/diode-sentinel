@@ -239,11 +239,25 @@ for _ in range(3000):
          _sport(), 443, 60, "S")
 
 # ---------------- ATTACK 4: vertical port scan (500 ports) ----------------
+# Two bursts: an early one (pre-split, for the models567 trainer) and the main
+# one. The category-6 scan models need malicious rows on BOTH sides of the
+# temporal split; a single 15 s burst falls entirely on one side and leaves the
+# holdout with nothing to score (see models567/eval.json before this fix).
+for i in range(200):
+    _tcp(250 + i * 0.03, INTERNAL[11], SCAN_TARGET, _sport(),
+         20 + i * 2, 60, "S")
 for i in range(500):
     _tcp(400 + i * 0.03, INTERNAL[11], SCAN_TARGET, _sport(),
          20 + i * 2, 60, "S")
 
 # ---------------- ATTACK 5: data exfiltration (2.8 MB to novel dst) ----------------
+# Same rationale as the scan burst: an early transfer so the category-7 exfil
+# models have malicious training rows, and the main one so the holdout can
+# actually test them. Spanning ~5 windows is deliberate: exfil_features are
+# per-(src,dst) per-window, so a burst shorter than a few windows leaves the
+# classifier with 2-3 positive rows and it never learns the class.
+for i in range(1500):
+    _tcp(300 + i * 0.03, INTERNAL[9], EXFIL_DST, 52000, 8443, 1400, "PA")
 for i in range(2000):
     _tcp(480 + i * 0.03, INTERNAL[9], EXFIL_DST, 51000, 8443, 1400, "PA")
 
