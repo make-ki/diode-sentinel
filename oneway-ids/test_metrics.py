@@ -273,11 +273,13 @@ class TestRunHooks(unittest.TestCase):
     def test_run_pipeline_attaches_stats(self):
         import run as run_mod
 
-        # a two-packet "capture": enough to bump npkt and build one flow
+        # a two-packet "capture": enough to bump npkt and build one flow.
+        # tuple order: (t, src, dst, proto, sport, dport, size, is_syn,
+        #               payload, qname, seq, qtype)
         pkts = [(1.0, "10.0.0.1", "10.0.0.2", "tcp", 1000, 80, 100, 1, b"",
-                 None, 0),
+                 None, 0, None),
                 (1.1, "10.0.0.1", "10.0.0.2", "tcp", 1000, 80, 100, 0, b"",
-                 None, 100)]
+                 None, 100, None)]
         sink = AlertSink(path=os.devnull, truncate=False)
         metrics = NidsMetrics(sink)
         stats = run_mod.run_pipeline(iter(pkts), sink, metrics=metrics)

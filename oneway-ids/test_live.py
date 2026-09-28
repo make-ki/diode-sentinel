@@ -87,7 +87,8 @@ frame = bytes(Ether(**ETH) / IP(src="10.0.0.5", dst="1.2.3.4")
 src.anchor = 0.0
 pkt = src.dissect(frame, 100.0)
 check("dissect_tcp_tuple", pkt == (100.0, "10.0.0.5", "1.2.3.4", "tcp", 1234,
-                                   443, len(frame), True, b"", None, 0), pkt)
+                                   443, len(frame), True, b"", None, 0,
+                                   None), pkt)
 aframe = bytes(Ether(**ETH) / IP(src="10.0.0.6", dst="10.0.0.7")
                / UDP(sport=1, dport=9999))
 check("dissect_non_tls_udp", src.dissect(aframe, 5.0)[:6]

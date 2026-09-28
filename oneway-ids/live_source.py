@@ -300,12 +300,14 @@ class AfPacketSource:
             is_syn = bool(tcp.flags & dpkt.tcp.TH_SYN) \
                 and not (tcp.flags & dpkt.tcp.TH_ACK)
             return (t, src, dst, "tcp", tcp.sport, tcp.dport, len(buf),
-                    is_syn, bytes(tcp.data), None, tcp.seq)
+                    is_syn, bytes(tcp.data), None, tcp.seq, None)
         if isinstance(ip.data, dpkt.udp.UDP):
             udp = ip.data
-            qname = _dns_qname(bytes(udp.data)) if udp.dport == 53 else None
+            qname = qtype = None
+            if udp.dport == 53:
+                qname, qtype = _dns_qname(bytes(udp.data))
             return (t, src, dst, "udp", udp.sport, udp.dport, len(buf),
-                    False, bytes(udp.data), qname, 0)
+                    False, bytes(udp.data), qname, 0, qtype)
         # IPv4 but not TCP/UDP: ICMP, GRE, ESP, OSPF... No detector consumes
         # these, so the frame is dropped -- but it is COUNTED, so the report
         # can never imply that unprocessed traffic was analysed.

@@ -95,6 +95,15 @@ Results that are real and defensible:
   694k-domain corpus. This is the strongest ML artifact in the repo.
 - Zeek 7.2.2 correctly parses a TLS ClientHello from a strictly one-direction
   capture, including with the SYN present. Verified on real OpenSSL traffic.
+- **The one-way observability contract is the project's real contribution.**
+  `observability.py` enumerates every feature PS-26145 names and states
+  whether it is `OBSERVABLE`, `IMPOSSIBLE`, or `SUBSTITUTED` on a directional
+  feed. 21 features: 15 observable, 5 structurally impossible (JA3S, negotiated
+  cipher, server certificate, RTT, NXDOMAIN ratio, in/out byte ratio), 1
+  substituted. `test_contract.py` is the gate: it fails the build if a
+  detector reads a forbidden bidirectional field. Five of the PS's own
+  requested features are unsatisfiable under the PS's own constraint (a) --
+  that finding is the deck's headline, not a config trick.
 
 Results that are NOT true — do not put them on a slide:
 
@@ -102,8 +111,13 @@ Results that are NOT true — do not put them on a slide:
   `data_exfiltration` FP at 0.95 on the benign cloud-backup host.
 - **"7 / 7 threat classes"** — the PS names six. The seventh conflates the
   fusion layer with a detector.
-- **DNS tunnelling detection** — does not exist. There is no `qtype` parsing
-  anywhere, and the dashboard labels the class as though it does.
+- **DNS tunnelling detection** — **now exists** (`DGADetector._tunnel_check`).
+  Uses qtype anomaly, query length and max label length; all three are written
+  by the client into the query, so all are one-way observable. The previous
+  note here ("does not exist, and the dashboard labels the class as though it
+  does") is superseded as of the qtype plumbing through `pcap_reader.py`,
+  `live_source.py` and `pipeline.py`. The old gap is closed, do not report it
+  as open.
 - **MITRE technique IDs** — the deck promises them four times; the alert
   schema has no such field.
 - **The 13 public datasets on slide 16** — none were used. Only

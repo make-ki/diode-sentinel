@@ -117,10 +117,10 @@ def _udp(t, src, dst, sport, dport, size):
                    UDP(sport=sport, dport=dport) / Raw(payload)))
 
 
-def _dns_query(t, src, qname):
+def _dns_query(t, src, qname, qtype=1):
     events.append((t, Ether() / IP(src=src, dst=DNS_SERVER) /
                    UDP(sport=_sport(), dport=53) /
-                   DNS(rd=1, qd=DNSQR(qname=qname))))
+                   DNS(rd=1, qd=DNSQR(qname=qname, qtype=qtype))))
 
 
 # ---------------- TLS profile assignment (stable per host) ----------------
@@ -207,6 +207,22 @@ ALPHA = "abcdefghijklmnopqrstuvwxyz0123456789"
 for i in range(int(DURATION / 10) - 2):
     label = "".join(random.choices(ALPHA, k=14))
     _dns_query(10 + i * 10, INTERNAL[7], label + ".com.")
+
+# ---------------- ATTACK 2c: DNS tunnelling exfil (slow, bulk qtype) ------
+# PS class (c) asks for "query-length and record-type anomalies". This models
+# dnscat2/iodine: stolen data is base32-encoded INTO the query label and sent
+# under a bulk-carrying record type, in a low trickle that a volume alarm
+# would never see. Every feature used to catch it is written by the client
+# into the query, so all of it survives a one-way feed.
+TUNNEL_START = 220.0
+assert TUNNEL_START > BASELINE_SECONDS, "tunnel would poison the baseline"
+_b32 = "abcdefghijklmnopqrstuvwxyz234567"
+for i in range(int((DURATION - TUNNEL_START) / 7)):
+    # ~50 chars of payload per query, chunked: this is what a real tunnel
+    # looks like on the wire, not a single oversized packet.
+    chunk = "".join(random.choices(_b32, k=50))
+    _dns_query(TUNNEL_START + i * 7, INTERNAL[9],
+               chunk + ".exfil." + "x" * 8 + ".com.", qtype=16)   # TXT
 
 # ---------------- ATTACK 2b: same DGA host also beacons (fusion fodder) ---
 # Realistic botnet: DGA-resolved C2 + periodic beaconing from one host.

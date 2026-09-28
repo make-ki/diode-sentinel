@@ -6,7 +6,8 @@ Two backends:
   - iter_scapy:  scapy PcapReader (slow; reference implementation for parity)
 
 Both yield identical tuples so run.py's pipeline is backend-agnostic:
-    (t, src, dst, proto, sport, dport, size, is_syn, payload, qname, seq)
+    (t, src, dst, proto, sport, dport, size, is_syn, payload, qname, seq,
+     qtype)
 where t is sim-relative seconds, payload is raw TCP/UDP bytes (b"" if none),
 qname is the DNS question name for UDP/53 queries (else None), size is the
 full frame length (consistent across backends), and seq is the TCP sequence
@@ -24,9 +25,15 @@ except ImportError:
 
 
 def _dns_qname(payload: bytes):
-    """Extract the question name from a raw DNS query payload."""
+    """Extract the question name from a raw DNS query payload.
+
+    Returns (qname, qtype) or (None, None). The question's record type sits
+    immediately after the terminating zero label, so it costs nothing to
+    capture here -- and it is one-way observable by construction, since the
+    client writes it into the query before it ever leaves the network.
+    """
     if len(payload) < 17:
-        return None
+        return None, None
     off = 12                                   # skip DNS header
     labels = []
     try:
@@ -35,15 +42,21 @@ def _dns_qname(payload: bytes):
             if n == 0:
                 break
             if n & 0xC0:                       # compression pointer (responses)
-                return None
+                return None, None
             off += 1
             if off + n > len(payload):
-                return None
+                return None, None
             labels.append(payload[off:off + n].decode(errors="replace"))
             off += n
+        # off now sits on the root label's zero byte; the 2-byte qtype and
+        # 2-byte qclass follow it.
+        if off + 5 > len(payload):
+            return None, None
+        qtype = int.from_bytes(payload[off + 1:off + 3], "big")
     except IndexError:
-        return None
-    return ".".join(labels) + "." if labels else None
+        return None, None
+    qname = ".".join(labels) + "." if labels else None
+    return qname, qtype
 
 
 def iter_dpkt(path: str):
@@ -62,12 +75,14 @@ def iter_dpkt(path: str):
                 is_syn = bool(tcp.flags & dpkt.tcp.TH_SYN) \
                     and not (tcp.flags & dpkt.tcp.TH_ACK)
                 yield (t, src, dst, "tcp", tcp.sport, tcp.dport, len(buf),
-                       is_syn, bytes(tcp.data), None, tcp.seq)
+                       is_syn, bytes(tcp.data), None, tcp.seq, None)
             elif isinstance(ip.data, dpkt.udp.UDP):
                 udp = ip.data
-                qname = _dns_qname(bytes(udp.data)) if udp.dport == 53 else None
+                qname = qtype = None
+                if udp.dport == 53:
+                    qname, qtype = _dns_qname(bytes(udp.data))
                 yield (t, src, dst, "udp", udp.sport, udp.dport, len(buf),
-                       False, bytes(udp.data), qname, 0)
+                       False, bytes(udp.data), qname, 0, qtype)
 
 
 def iter_scapy(path: str):
@@ -86,21 +101,22 @@ def iter_scapy(path: str):
                 yield (t, ip.src, ip.dst, "tcp", int(tcp.sport),
                        int(tcp.dport), len(pkt),
                        bool(flags & 0x02 and not flags & 0x10),
-                       bytes(tcp.payload), None, int(tcp.seq))
+                       bytes(tcp.payload), None, int(tcp.seq), None)
             elif UDP in pkt:
                 udp = pkt[UDP]
-                qname = None
+                qname = qtype = None
                 if int(udp.dport) == 53 and pkt.haslayer(DNS):
                     try:
-                        q = pkt[DNS].qd.qname
+                        q = pkt[DNS].qd
                         if isinstance(q, list):
                             q = q[0]
-                        qname = q.decode(errors="replace")
+                        qname = q.qname.decode(errors="replace")
+                        qtype = int(q.qtype)
                     except Exception:
                         pass
                 yield (t, ip.src, ip.dst, "udp", int(udp.sport),
                        int(udp.dport), len(pkt), False, bytes(udp.payload),
-                       qname, 0)
+                       qname, 0, qtype)
 
 
 def best_reader():

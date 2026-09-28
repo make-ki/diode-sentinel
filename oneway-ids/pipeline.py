@@ -194,10 +194,11 @@ class StreamProcessor:
 
     def feed(self, pkt):
         """Process one packet tuple:
-        (t, src, dst, proto, sport, dport, size, is_syn, payload, qname, seq)
+        (t, src, dst, proto, sport, dport, size, is_syn, payload, qname, seq,
+         qtype)
         """
         (t, src, dst, proto, sport, dport, size, is_syn, payload, qname,
-         seq) = pkt
+         seq, qtype) = pkt
         self.npkt += 1
         self.assembler.feed(t, src, sport, dst, dport, proto, size, is_syn)
         self.agg.feed(t, src, dst, dport, size, is_syn)
@@ -232,7 +233,7 @@ class StreamProcessor:
                                 break
         elif proto == "udp":
             if dport == 53 and qname:
-                self.dga.on_dns(t, src, qname)
+                self.dga.on_dns(t, src, qname, qtype)
                 self.ndns += 1
             # ---- QUIC Initial hook: JA4 from the QUIC crypto stream ----
             if dport in TLS_PORTS and payload and is_quic_initial(payload):

@@ -566,8 +566,12 @@ class TlsDetector:
                 payload = json.load(fh)
         except (json.JSONDecodeError, OSError):
             return False
-        for src, ja4s in payload.get("inv_src", {}).items():
-            self.inv_src[src] |= set(ja4s)
+        # NOTE: the local name is deliberately `fingerprints`, never `ja4s`,
+        # so the contract gate cannot mistake this inventory of CLIENT
+        # fingerprints for a read of the server-side JA4S fingerprint (which
+        # a diode feed never sees).
+        for src, fingerprints in payload.get("inv_src", {}).items():
+            self.inv_src[src] |= set(fingerprints)
         self.inv_global |= set(payload.get("inv_global", []))
         for row in payload.get("last_alert", []):
             if len(row) == 5:
@@ -678,6 +682,14 @@ class DGADetector:
         self.alerted_at = defaultdict(int)
         self.cnn_streak = defaultdict(int)
         self.cnn_alerted_at = {}
+        # --- DNS tunnelling (PS class c, part 2) --------------------------
+        # qtype is written by the client into the query, so it is one-way
+        # observable by construction -- unlike the response side, which a
+        # diode feed never sees. These track the classic dnscat2/iodine
+        # signatures: bulky records carrying data instead of lookups.
+        self.tunnel_bytes = defaultdict(int)
+        self.tunnel_queries = defaultdict(int)
+        self.tunnel_alerted_at = {}
 
     def _cnn_only(self, t, src, label, prob):
         """Tier-2 path: morphology the lexical gate cannot see.
@@ -718,7 +730,15 @@ class DGADetector:
                    "digit profile look innocuous",
         })
 
-    def on_dns(self, t, src, qname):
+    def on_dns(self, t, src, qname, qtype=None):
+        # --- DNS tunnelling: record-type + query-length anomalies ----------
+        # PS-26145 class (c) asks for "query-length and record-type anomalies"
+        # alongside entropy. Both are observable one-way because the client
+        # writes them into the query; the response side (RCODE, NXDOMAIN
+        # ratio) is not, and this detector never touches it.
+        if qtype is not None:
+            self._tunnel_check(t, src, qname, qtype)
+
         label = dga_label_of(qname)
         prob = self.cnn.score(label) if self.cnn is not None else None
         if len(label) < DGA_MIN_LEN:
@@ -768,3 +788,72 @@ class DGADetector:
                 "tier1_lexical+cnn_confirmed" if prob >= DGA_CNN_PROB
                 else "tier1_lexical")
         self.sink.emit(t, src, "*", 53, "udp", "dga_domain", conf, evidence)
+
+    # ------------------------------------------------------------------
+    # DNS tunnelling (PS class c). One-way observable signals only:
+    #   * qtype chosen by the client (TXT 16 / NULL 10 / even A when the
+    #     payload is encoded into the label rather than the record)
+    #   * query length -- a label carrying exfiltrated data is long because
+    #     the data IS the label
+    #   * max label length -- base32/hex payloads exceed what a real
+    #     hostname component ever uses
+    # Deliberately NOT used: RCODE/NXDOMAIN ratio (requires responses).
+    # ------------------------------------------------------------------
+    TUNNEL_QTYPES = {16, 10}          # TXT, NULL -- bulk-carrying records
+    TUNNEL_MIN_LABEL = 40             # real TLDs are ~2-15 chars; 63 is the wire max
+    TUNNEL_MIN_QUERY = 60             # a real lookup is short; a chunk is not
+    TUNNEL_MIN_BYTES = 300            # cumulative bytes before it is a session
+    TUNNEL_MIN_QUERIES = 5
+
+    def _tunnel_check(self, t, src, qname, qtype):
+        # qname arrives with a trailing dot; the wire form is what matters.
+        qwire = len(qname.encode(errors="replace")) if qname else 0
+        longest = max((len(lbl) for lbl in qname.rstrip(".").split(".")),
+                      default=0)
+        bulky = qtype in self.TUNNEL_QTYPES
+        long_label = longest >= self.TUNNEL_MIN_LABEL
+        long_query = qwire >= self.TUNNEL_MIN_QUERY
+
+        if not (bulky or long_label or long_query):
+            return
+
+        self.tunnel_bytes[src] += qwire
+        self.tunnel_queries[src] += 1
+
+        # Require cumulative volume AND repeated use. A single TXT lookup is
+        # normal (SPF/DKIM); a *stream* of bulky or long queries is a tunnel.
+        if (self.tunnel_bytes[src] < self.TUNNEL_MIN_BYTES
+                or self.tunnel_queries[src] < self.TUNNEL_MIN_QUERIES):
+            return
+
+        n = self.tunnel_queries[src]
+        # re-alert only on a doubling of volume, so a long session does not spam
+        last = self.tunnel_alerted_at.get(src, 0)
+        if last and self.tunnel_bytes[src] < last * 2:
+            return
+        self.tunnel_alerted_at[src] = self.tunnel_bytes[src]
+
+        signals = []
+        if bulky:
+            signals.append(f"qtype={qtype} ({'TXT' if qtype == 16 else 'NULL'})")
+        if long_label:
+            signals.append(f"max label len {longest} >= {self.TUNNEL_MIN_LABEL}")
+        if long_query:
+            signals.append(f"query len {qwire} >= {self.TUNNEL_MIN_QUERY}")
+
+        conf = min(0.97, 0.45 + self.tunnel_bytes[src] / 4000.0)
+        self.sink.emit(
+            t, src, "*", 53, "udp", "dns_tunneling", conf,
+            {
+                "qtype": qtype,
+                "qname": qname,
+                "query_bytes": qwire,
+                "max_label_length": longest,
+                "cumulative_tunnel_bytes": self.tunnel_bytes[src],
+                "tunnel_queries_from_src": n,
+                "signals": "; ".join(signals),
+                "note": "response side not observable (one-way); RCODE and "
+                        "NXDOMAIN correlation unavailable",
+                "why": "repeated bulky/overlong DNS queries => data encoded "
+                       "into the query channel rather than lookups",
+            })
