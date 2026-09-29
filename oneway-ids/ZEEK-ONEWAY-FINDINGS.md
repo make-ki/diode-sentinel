@@ -90,6 +90,12 @@ Writer to build test pcaps for Zeek — use `tshark`/`editcap`.
 
 ## Files
 
+> These were local working files from the investigation. **None were committed
+> and none exist in the repo today** — the `.zeek` shims lived in
+> `zeekfix/oneway.zeek` and the captures were gitignored. There is no Zeek in
+> the shipped sensor; this file is the offline measurement record. Do not
+> write a build step that expects any of these paths.
+
 - `zeekfix/oneway.zeek` — the shim (compiles, runs, harmless on fixed traffic)
 - `zeekfix/diag.zeek` — event-level probe (`ssl_client_hello` counts)
 - `oneway_real_tls.pcap` / `oneway_with_syn.pcap` — real one-way TLS captures

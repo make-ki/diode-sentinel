@@ -25,16 +25,16 @@ traffic, with bounded latency by construction.
 ```
 data diode (one-way feed)
    │
-   ├─► pcap_reader.py   dpkt (hot path) or scapy (parity reference)  [replay]
-   └─► live_source.py   AF_PACKET raw socket                          [live]
+   ├─► core/pcap_reader.py  dpkt (hot path) or scapy (parity reference)  [replay]
+   └─► core/live_source.py  AF_PACKET raw socket                          [live]
    │  uniform packet tuples (same schema, same dpkt dissection)
    ▼
-pipeline.py         FlowAssembler (5-tuple, idle timeout)
+core/pipeline.py    FlowAssembler (5-tuple, idle timeout)
                     WindowAggregator (10s windows: rates, entropy, fan-out,
                                      novel destinations, per-pair bytes)
    │
    ├─► Tier-0  config allowlist (operator-curated, zero cost)
-   ├─► Tier-1  streaming detectors (detectors.py):
+   ├─► Tier-1  streaming detectors (core/detectors.py):
    │      DDoS        window rate + src-IP Shannon entropy + SYN ratio
    │      beaconing   inter-flow IAT mean/CV per (src,dst,dport),
    │                  evidence-scaled CV gate (0.15 small-n / 0.25 n>=10)
@@ -339,7 +339,7 @@ against a `DGA_MIN_ENTROPY` of 3.3. The rules called it benign. It is a real
 query from the botnet DGA host. Across 60 fresh cryptolocker-style labels,
 **17 (28%) are rejected** by the lexical gate.
 
-`dga_cnn.py` is a 1D character CNN over the label (embedding → Conv1D(k=3,5)
+`core/dga_cnn.py` is a 1D character CNN over the label (embedding → Conv1D(k=3,5)
 ×32 → ReLU → masked global max-pool → dropout → dense → softmax), trained and
 served entirely in numpy. It adds **no dependency**: numpy is already present
 transitively via LightGBM, and there is no torch, keras or ONNX anywhere.

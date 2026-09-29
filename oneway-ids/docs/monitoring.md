@@ -3,7 +3,7 @@
 The sensor can expose its live internals as Prometheus metrics; the stack in
 `monitoring/` scrapes them and ships a pre-built Grafana dashboard plus a set
 of alert rules. Everything about the *sensor* stays stdlib-only: the exporter
-(`metrics.py`) hand-renders the Prometheus text exposition format rather than
+(`core/metrics.py`) hand-renders the Prometheus text exposition format rather than
 adding `prometheus_client` to the pinned environment, for the same reason the
 SOC dashboard has no Flask.
 
@@ -101,7 +101,10 @@ UI. The dashboard is read-only-provisioned; clone it in the UI to customise.
 
 ## Multiple sensors / remote sensors
 
-`prometheus.yml` scrapes `host.docker.internal:9100` by default. For a remote
+`prometheus.yml` scrapes `localhost:9100` by default. Both containers run with
+`network_mode: host` (this host's firewall drops bridge->host traffic to
+arbitrary ports, so a bridged Prometheus could not reach a host-exporting
+sensor; on localhost everything is reachable without root). For a REMOTE
 sensor (or several), add targets -- static:
 
 ```yaml
@@ -112,13 +115,6 @@ scrape_configs:
         labels: { sensor: a }
       - targets: ["sensor-b.lab:9100"]
         labels: { sensor: b }
-```
-
-or file-based service discovery:
-
-```yaml
-    file_sd_configs:
-      - files: ["/etc/prometheus/targets/*.yml"]
 ```
 
 Every dashboard panel and alert rule is label-agnostic (`job="nids"` plus
@@ -171,5 +167,5 @@ monitoring/
   grafana/dashboards/nids-overview.json the NIDS Overview dashboard
 ```
 
-Sensor side: `metrics.py` (exporter), `run.py --metrics-port PORT`,
-`test_metrics.py` (19 unit tests).
+Sensor side: `core/metrics.py` (exporter), `run.py --metrics-port PORT`,
+`tests/test_metrics.py` (19 unit tests).

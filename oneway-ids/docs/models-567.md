@@ -10,13 +10,13 @@ This document describes the optional learned model tier added for the three requ
 | 6. Reconnaissance / port scanning | Random Forest + Isolation Forest | per-source destination/port fan-out | `recon_model_scan` |
 | 7. Data exfiltration | XGBoost + Isolation Forest | transfer volume, source baseline, destination novelty | `data_exfiltration_model` |
 
-The models are served by `models_567.py` and integrated at flow-close and window-flush points in `pipeline.py`.
+The models are served by `core/models_567.py` and integrated at flow-close and window-flush points in `core/pipeline.py`.
 
 ## Category 5: encrypted sessions
 
 ### Packet-sequence CNN
 
-`packet_sequence_cnn.py` converts each closed flow into a compact token sequence:
+`core/packet_sequence_cnn.py` converts each closed flow into a compact token sequence:
 
 - packet size buckets
 - inter-arrival-time buckets
@@ -144,7 +144,7 @@ Model alerts use the standard JSONL schema and include the model name and featur
 ## Measured holdout results
 
 The numbers below are the trainer's own temporal-holdout evaluation (`t >= 390s`)
-on the shipped capture, reproduced by `train_models_567.py`. `models567/eval.json`
+on the shipped capture, reproduced by `training/train_models_567.py`. `models567/eval.json`
 is the machine-readable original, including the full threshold sweep per model.
 The raw model is scored over **every** held-out flow and window — not just the
 rule-gated subsets the server sees — so the benign FP pressure here

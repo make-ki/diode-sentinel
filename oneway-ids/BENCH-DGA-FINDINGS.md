@@ -44,7 +44,7 @@ Everything in the original "Remaining work" list is done:
 - [x] Full benchmark run, `dga_bench.json` saved (336 s wall, deterministic given
       the recorded corpus digests)
 - [x] Quorum decision re-confirmed at full scale — `DGA_CNN_MIN_STREAK = 4`
-      stands, sweep recorded in the `config.py` comment
+      stands, sweep recorded in the `core/config.py` comment
 - [x] `test_bench_dga.py` written — 31 checks, fixture corpus offline (network
       access asserted away), family attribution, uniform-vs-prefix sampling,
       the ordering-artifact regression, quorum-sweep math

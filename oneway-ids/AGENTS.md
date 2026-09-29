@@ -37,8 +37,14 @@ MESSY=1 .venv/bin/python gen_traffic.py    # FP-pressure variant
 .venv/bin/python run.py --parity           # dpkt vs scapy must agree byte-for-byte
 .venv/bin/python run.py --models-567 models567/manifest.json
 
-# Zeek dissection layer (Tier-1).
-zeek -r traffic.pcap local zeek/oneway.zeek
+# NOTE: there is NO Zeek or Suricata in this repo. The sensor is pure Python
+# (dpkt/scapy -> core/pipeline.py -> detectors). Zeek was used only as an
+# offline verification tool during development; see
+# ZEEK-ONEWAY-FINDINGS.md. Do not add a Zeek build step here -- the shim
+# (zeekfix/oneway.zeek) was never committed, and zeek is not in flake.nix.
+
+# Deck: build the slides from the honest source, never hand-edit the .pptx.
+.venv/bin/python build_deck.py   # -> ../Diode-Sentinel.pptx (17 slides)
 
 # Tests are plain unittest scripts. There is NO pytest dependency.
 for t in tests/test_*.py; do .venv/bin/python "$t" || break; done
@@ -65,7 +71,7 @@ relax `requires-python`.
 ## Testing instructions
 
 - Write a test for a behaviour, not for an implementation detail. The worst
-  bug in this repo was `test_metrics.py` asserting on evidence keys the
+  bug in this repo was `tests/test_metrics.py` asserting on evidence keys the
   pipeline never emits — a test that validated a mock.
 - Regression gates: `.regression/alerts_rules.reference.jsonl` and
   `alerts_ml.reference.jsonl` must stay **byte-identical**. They are the
@@ -79,7 +85,7 @@ relax `requires-python`.
 - `nids_state.json` and `alerts.jsonl` are *outputs*. They previously leaked a
   real LAN host's JA4 inventory and 354 rows of private traffic. They are
   gitignored now; do not un-ignore them casually.
-- `ALLOWLIST` in `config.py` is operator-curated. It currently contains the
+- `ALLOWLIST` in `core/config.py` is operator-curated. It currently contains the
   same three telemetry IPs the generator emits, which makes "zero false
   positives after allowlisting" circular. Do not present that as a result.
 - Never point the AF_PACKET source at a production interface without
@@ -90,9 +96,10 @@ relax `requires-python`.
 Results that are real and defensible:
 
 - Throughput, re-measured over repeated runs on one core: rules tier
-  ~48.6k pkt/s (47.9k-49.0k, tight) ~= 205 Mbps; ML tier 23k-31k pkt/s
-  (quoted as a range -- it is not reproducible as a single number); 2,377x
-  real-time on the sparse synthetic capture. Mean packet 527.3 B.
+  ~48.6k-50.4k pkt/s ~= 240 Mbps; ML tier 24k-31k pkt/s
+  (quoted as a range -- it is not reproducible as a single number); ~2,000x
+  real-time on the sparse synthetic capture (23 pkt/s, so quote this only as a
+  repeatability statement, never as a headline). Mean packet 613.7 B.
 - dpkt and scapy backends produce byte-identical alert distributions.
 - The DGA char-CNN is a genuine numpy `conv1d` whose analytic gradients match
   finite differences to 7e-09. Family-held-out evaluation against a real
@@ -100,11 +107,11 @@ Results that are real and defensible:
 - Zeek 7.2.2 correctly parses a TLS ClientHello from a strictly one-direction
   capture, including with the SYN present. Verified on real OpenSSL traffic.
 - **The one-way observability contract is the project's real contribution.**
-  `observability.py` enumerates every feature PS-26145 names and states
+  `core/observability.py` enumerates every feature PS-26145 names and states
   whether it is `OBSERVABLE`, `IMPOSSIBLE`, or `SUBSTITUTED` on a directional
   feed. 21 features: 15 observable, 5 structurally impossible (JA3S, negotiated
   cipher, server certificate, RTT, NXDOMAIN ratio, in/out byte ratio), 1
-  substituted. `test_contract.py` is the gate: it fails the build if a
+  substituted. `tests/test_contract.py` is the gate: it fails the build if a
   detector reads a forbidden bidirectional field. Five of the PS's own
   requested features are unsatisfiable under the PS's own constraint (a) --
   that finding is the deck's headline, not a config trick.
@@ -137,28 +144,37 @@ Results that are NOT true — do not put them on a slide:
   Uses qtype anomaly, query length and max label length; all three are written
   by the client into the query, so all are one-way observable. The previous
   note here ("does not exist, and the dashboard labels the class as though it
-  does") is superseded as of the qtype plumbing through `pcap_reader.py`,
-  `live_source.py` and `pipeline.py`. The old gap is closed, do not report it
-  as open.
-- **MITRE technique IDs** — the deck promises them four times; the alert
-  schema has no such field.
-- **The 13 public datasets on slide 16** — none were used. Only
-  `andrewaeva/DGA` + Alexa top-1M. Everything else is `gen_traffic.py`.
+  does") is superseded as of the qtype plumbing through `core/pcap_reader.py`,
+  `core/live_source.py` and `core/pipeline.py`. The old gap is closed, do not
+  report it as open.
+- **MITRE technique IDs** — the deck once promised them four times; the alert
+  schema has no such field. The rebuilt deck no longer promises them.
+- **The 13 public datasets on the old slide 16** — none were used. Only
+  `andrewaeva/DGA` + Alexa top-1M, plus the IoT-23 scenarios for the
+  per-host validation. Everything else is `gen_traffic.py`.
 - **Kafka/Flink/ClickHouse/React/ONNX/K8s/Terraform stack** — none of it
-  exists. The deck described a different project.
+  exists. The Sep 14 `.pptx` described a different project; the deck was
+  rebuilt from the honest source on 29 Sep (see `build_deck.py`). Do not
+  reintroduce any of it.
 - **"Zeek cannot work one-way, we fixed it"** — my own testing disproved this.
   Vanilla Zeek works once the traffic generator emits realistic TCP.
   `ZEEK-ONEWAY-FINDINGS.md` records the measurement.
 
 ## How to work here
 
-- Read `ZEEK-ONEWAY-FINDINGS.md` before touching Zeek or the generator. It
-  records three days of wrong hypotheses so you do not repeat them.
-- The single most valuable unclaimed asset is the **IoT-23 validation** in
-  `HANDOFF.md` at the repo root: real CTU captures, real Zeek ground truth,
-  including an honest miss and a genuine one-way false positive. Nothing in
-  the deck uses it.
+- Read `ZEEK-ONEWAY-FINDINGS.md` before touching the generator. It
+  records three days of wrong hypotheses so you do not repeat them. (There is
+  no Zeek in the shipped sensor; that file is an offline measurement record.)
+- The **IoT-23 validation** in `HANDOFF.md` at the repo root is now used: it
+  is slide 14 of the rebuilt deck (two families detected with no retuning, one
+  honest miss, one structural FP). Its results were measured on a now-unmounted
+  external drive with scorer scripts that lived only in `/tmp` -- the numbers
+  are real but NOT currently reproducible from the repo. Do not claim
+  reproducibility for them.
 - When a hypothesis fails, record *why* before moving on. The findings file
   exists because negative results were getting lost.
 - Do not trust markdown claims in this repo — verify against the code. The
-  docs have several times drifted from the implementation.
+  docs have several times drifted from the implementation. If you change a
+  measured number, regenerate the deck (`build_deck.py`) the same session, or
+  the `.pptx` goes stale again -- that is exactly how the fictional stack
+  survived every audit for 15 days.

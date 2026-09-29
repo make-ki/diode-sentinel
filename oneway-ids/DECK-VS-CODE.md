@@ -1,5 +1,19 @@
 # `Diode-Sentinel.pptx` vs the prototype — reconciliation
 
+> **⚠ SUPERSEDED — kept as an audit record, not a current to-do.**
+> This review was written against the **Sep 14 2026** `.pptx`, which described
+> a Kafka/Flink/ClickHouse/React/ONNX/K8s/Terraform stack that does not exist
+> in this repo. That deck was replaced on **29 Sep 2026** by one built from the
+> honest source (`build_deck.py` → 17 slides). Every "fix before you present"
+> item in §C and §E below has been addressed by the rebuild, and the fictional
+> stack named in §B is now absent from the shipped deck.
+>
+> Read this for the *negative findings* that stay true regardless of the deck:
+> §B.1 (the project is multi-model, not multimodal), and §F's warning that the
+> CNN's live rescue does **not** fire at the shipped quorum (k=4) — quote it as
+> a benchmark measurement, never as a live alert. Do not action §C/§E; they are
+> done.
+
 Checked `../Diode-Sentinel.pptx` (16 slides) against the code in this
 directory. **Short answer: the architecture matches, the technology stack does
 not — and the deck never mentions the thing you actually built.**
