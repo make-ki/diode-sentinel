@@ -338,10 +338,10 @@ numbers less.
 ### Other numbers, with their mandatory qualifiers
 - **6/6** PS threat classes covered, **12 distinct threat classes** emitted by
   the rules tier (13 including the ML tier's `ml_flow_suspicious`),
-  45 alerts on the default capture (67 with the ML tier), plus 20 benign
+  46 alerts on the default capture (68 with the ML tier), plus 20 benign
   periodic events suppressed by the allowlist.
 - **False positives — the measured answer, not the headline you want.** On the
-  default capture the rules tier emits **45 alerts, every one on a host the
+  default capture the rules tier emits **46 alerts, every one on a host the
   generator designates as an attacker**; that is zero FPs. But we built a
   deliberate FP-pressure variant (`MESSY=1`) that injects *benign* patterns a
   real network has: first-time cloud-backup uploads, low-jitter IoT telemetry,
