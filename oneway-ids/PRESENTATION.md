@@ -430,15 +430,12 @@ numbers less.
   separated per-string (0.226 / 0.257) and no CNN threshold fixes it, and
   mixed-host precision at 5% DGA prevalence is 0.171 — the layered policy is
   what keeps the benign case quiet, not the CNN alone.
-- **Tests:** 323 checks across ten suites, all green — `test_tls_meta.py` 35,
-  `test_fusion.py` 19, `test_quic.py` 10, `test_live.py` 70,
-  `test_dashboard.py` 75, `test_dga_cnn.py` 51 (including a finite-difference
+- **Tests:** 336 checks across ten suites, all green — `test_tls_meta.py` 42,
+  `test_fusion.py` 19, `test_quic.py` 10, `test_live.py` 69,
+  `test_dashboard.py` 82, `test_dga_cnn.py` 51 (including a finite-difference
   gradient check on the hand-written backprop), `test_bench_dga.py` 31,
   `test_metrics.py` 19, `test_contract.py` 6, `test_models_567.py` 7.
-  (PLAN.md still contains the
-  intermediate counts from mid-development, e.g. "48 unit tests"; those are
-  dated log entries, not current totals. Don't read a total off PLAN.md on
-  stage.)
+  Counts are measured by running the suites, not copied from a log.
 
 ### Real-dataset validation — IoT-23 (the answer to "isn't this all self-play?")
 

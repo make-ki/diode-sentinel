@@ -555,7 +555,7 @@ def build():
     tb = s.shapes.add_textbox(Inches(0.8), Inches(5.85), W - Inches(1.6), Inches(0.8))
     tf = tb.text_frame; tf.word_wrap = True
     p = tf.paragraphs[0]
-    p.text = ("323 checks across ten suites, all green · 6/6 threat classes · "
+    p.text = ("336 checks across ten suites, all green · 6/6 threat classes · "
               "~50k pkt/s single-core pure Python · built with no C extension, no GPU, "
               "and nothing that requires a reply.")
     p.font.size = Pt(15); p.font.color.rgb = MUTED; p.alignment = PP_ALIGN.CENTER

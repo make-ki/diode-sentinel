@@ -146,15 +146,13 @@ models567/           shipped category 5-7 artifacts + manifest + eval.json
 monitoring/          dockerized Prometheus + Grafana: provisioned dashboard,
                       alert rules -- see docs/monitoring.md
 BENCH-DGA.md         full-corpus results: per-family TPR, FP, quorum sweep
-BENCH-DGA-FINDINGS.md  superseded pre-full-run note; kept for the quick->full
-                    deltas (what scaling confirmed and what it revised)
-models_567.py       optional Tier-2 models for PS classes (d) encrypted
+core/models_567.py   optional Tier-2 models for PS classes (d) encrypted
                     sessions, (e) recon, (f) exfil: XGBoost / forests / a
-                    packet-sequence CNN reusing dga_cnn.py's numpy conv
-train_models_567.py trains that bundle AND evaluates the temporal holdout,
-                    sweeping each model's threshold against benign traffic;
-                    results -> models567/eval.json (see docs/models-567.md)
-models567/          trained artifacts + manifest (shipped, so --models-567
+                    packet-sequence CNN reusing core/dga_cnn.py's numpy conv
+training/train_models_567.py  trains that bundle AND evaluates the temporal
+                    holdout, sweeping each model's threshold against benign
+                    traffic; results -> models567/eval.json (see docs/models-567.md)
+models567/           trained artifacts + manifest (shipped, so --models-567
                     works out of the box) + eval.json holdout results
 docs/               run-simulation walkthrough; models-567 measured results
 static/index.html  dashboard page
@@ -162,7 +160,6 @@ static/app.css     layout + SOC palette (daisyUI tokens, dark/light)
 static/app.js      polling client: KPIs, charts, filters, evidence modal
 static/vendor/     daisyUI 5.7.38 CSS + Chart.js 4.5.0 (both MIT)
 alerts.jsonl       standardized alert stream (dashboard input)
-PLAN.md            build loop log: every design, review, and fix
 ```
 
 ## Reproducing the environment
@@ -468,9 +465,6 @@ swap) -- see the loop log.
   allowlist (the same workflow as RITA/AC-Hunter), backup upload fires one
   genuinely-ambiguous exfil alert (documented limitation: novel-dst +
   large transfer needs a UEBA feedback loop).
-- **Two independent adversarial code reviews** absorbed during development
-  (spec-verified against FoxIO/Salesforce docs); findings and fixes logged
-  in PLAN.md.
 - **QUIC round-trip proof**: the JA4 extracted from a decrypted QUIC
   Initial is byte-identical to the direct TLS parse (test_quic.py), and a
   GCM-tampered packet is rejected rather than mis-fingerprinted.
