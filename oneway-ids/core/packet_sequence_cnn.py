@@ -1,5 +1,5 @@
 """NumPy 1D CNN adapter for one-way packet-size/timing sequences."""
-from dga_cnn import CharCnn, MAX_LEN
+from core.dga_cnn import CharCnn, MAX_LEN
 
 
 def _bucket(value, scale):

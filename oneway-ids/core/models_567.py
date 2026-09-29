@@ -13,7 +13,7 @@ import json
 import math
 import os
 
-from config import EXFIL_MIN_BYTES, SCAN_MIN_PAIRS
+from core.config import EXFIL_MIN_BYTES, SCAN_MIN_PAIRS
 
 
 class Model567DependencyError(RuntimeError):
@@ -164,7 +164,7 @@ class Models567:
                 model = xgb.XGBClassifier()
                 model.load_model(path)
             elif name == "sequence_cnn":
-                from packet_sequence_cnn import PacketSequenceCnn
+                from core.packet_sequence_cnn import PacketSequenceCnn
                 model = PacketSequenceCnn.load(path)
             else:
                 if load is None:

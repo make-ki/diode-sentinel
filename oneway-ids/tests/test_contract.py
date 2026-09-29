@@ -17,13 +17,24 @@ fields. That keeps it honest and keeps it from becoming a test that passes by
 construction.
 """
 
+# Bootstrap: tests import core/, training/ and the root entry points, so put the
+# repo root and its subpackages on sys.path regardless of the invocation CWD.
+import os as _os, sys as _sys
+_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+for _p in (_ROOT, _os.path.join(_ROOT, "training")):
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
 import os
 import re
 import unittest
 
-import observability
+from core import observability
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# The gated modules moved into core/ with the source-tree restructure; resolve
+# their real location from the repo root rather than the test's own directory.
+ROOT = os.path.dirname(HERE)
+SRC = os.path.join(ROOT, "core")
 
 # Modules that implement detectors or protocol parsing. The contract has no
 # business gating test fixtures or the contract file itself.
@@ -53,7 +64,7 @@ class TestContractConsistency(unittest.TestCase):
         # The alert schema must not advertise a class the contract says is
         # built on an impossible feature. This is the failure that made the
         # old dashboard label DNS tunnelling as though RCODE was used.
-        with open(os.path.join(HERE, "detectors.py")) as fh:
+        with open(os.path.join(SRC, "detectors.py")) as fh:
             alert_src = fh.read()
         for row in observability.CONTRACT:
             if row["status"] != "IMPOSSIBLE":
@@ -84,12 +95,19 @@ class TestNoBidirectionalFieldReads(unittest.TestCase):
 
     def test_no_forbidden_field_reads(self):
         failures = []
+        missing = []
         for name in GATED_MODULES:
-            path = os.path.join(HERE, name)
+            path = os.path.join(SRC, name)
             if not os.path.exists(path):
+                missing.append(name)
                 continue
             for lineno, token, line in self._scan(path):
                 failures.append(f"{name}:{lineno}: {token} -> {line.strip()}")
+        # A missing gated file would make the scan pass vacuously -- that would
+        # silently disable the contract, which is the project's headline claim.
+        self.assertEqual(missing, [],
+                         "gated module not found under core/ -- contract gate "
+                         "would pass vacuously: " + ", ".join(missing))
         self.assertEqual(
             failures, [],
             "bidirectional field read on a one-way feed:\n  "

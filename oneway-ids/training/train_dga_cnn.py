@@ -19,14 +19,22 @@ than being set up for a flattering number.
 
 Run: .venv/bin/python train_dga_cnn.py
 """
+# Bootstrap: this script lives in training/, one level below the repo root, so
+# the core package and sibling modules resolve no matter the CWD it is invoked
+# from.
+import os as _os, sys as _sys
+_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+for _p in (_ROOT, _os.path.join(_ROOT, "training")):
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
 import random
 import time
 
 import numpy as np
 
-from config import DGA_CNN_MODEL_PATH
-from dga_cnn import CharCnn, Adam, encode_batch
-from detectors import dga_lexical_gate
+from core.config import DGA_CNN_MODEL_PATH
+from core.dga_cnn import CharCnn, Adam, encode_batch
+from core.detectors import dga_lexical_gate
 
 # --------------------------------------------------------------------------
 # vocabulary used by both the benign generator and the dictionary DGA families

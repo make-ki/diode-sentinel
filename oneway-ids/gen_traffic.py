@@ -21,8 +21,8 @@ Contents (10 min sim time, ~13k packets):
 import random
 from scapy.all import Ether, IP, TCP, UDP, DNS, DNSQR, Raw, wrpcap
 
-from config import SIM_START, DURATION, PCAP_PATH, BASELINE_SECONDS
-from hello_profiles import browser_hello, updater_hello, malware_hello
+from core.config import SIM_START, DURATION, PCAP_PATH, BASELINE_SECONDS
+from core.hello_profiles import browser_hello, updater_hello, malware_hello
 
 random.seed(42)
 
@@ -192,8 +192,8 @@ for i in range(int((DURATION - MALWARE_TLS_START) / 45)):
 # ---------------- ATTACK 1c: malware moves C2 to QUIC (t=250+) ------------
 # Same malware TLS stack, now inside QUIC Initial packets (UDP:443).
 # Exercises the QUIC leg of class (d): one-way JA4 from QUIC crypto stream.
-from hello_profiles import malware_hello as _mal_hello_raw
-from quic_meta import build_quic_initial
+from core.hello_profiles import malware_hello as _mal_hello_raw
+from core.quic_meta import build_quic_initial
 _mal_hs = _mal_hello_raw()[5:]         # strip TLS record layer -> hs message
 import os as _os2
 for i in range(3):

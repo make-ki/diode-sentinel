@@ -101,16 +101,16 @@ Model alerts are intentionally gated by the existing rules:
 Focused model and detector tests:
 
 ```bash
-uv run python test_models_567.py
-uv run python test_fusion.py
-uv run python test_tls_meta.py
-uv run python test_quic.py
+uv run python tests/test_models_567.py
+uv run python tests/test_fusion.py
+uv run python tests/test_tls_meta.py
+uv run python tests/test_quic.py
 ```
 
 Live-path regression tests:
 
 ```bash
-uv run python test_live.py
+uv run python tests/test_live.py
 ```
 
 The live test uses injected/FIFO sources for most coverage and does not require raw-socket privileges.

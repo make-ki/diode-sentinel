@@ -27,7 +27,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 
-from config import ALERTS_PATH, PROJECT_DIR
+from core.config import ALERTS_PATH, PROJECT_DIR
 
 STATIC_DIR = os.path.join(PROJECT_DIR, "static")
 STATS_PATH = os.path.join(os.path.dirname(ALERTS_PATH) or ".", "run_stats.json")

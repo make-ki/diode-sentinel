@@ -7,6 +7,13 @@ must not reach for a CDN (the dashboard runs on an enclave host).
 
 Run: .venv/bin/python test_dashboard.py
 """
+# Bootstrap: tests import core/, training/ and the root entry points, so put the
+# repo root and its subpackages on sys.path regardless of the invocation CWD.
+import os as _os, sys as _sys
+_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+for _p in (_ROOT, _os.path.join(_ROOT, "training")):
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
 import json
 import os
 import re
@@ -16,7 +23,7 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 
 import dashboard as dash
-from config import ALERTS_PATH
+from core.config import ALERTS_PATH
 
 STATIC = dash.STATIC_DIR
 failures = []
@@ -54,6 +61,11 @@ print(f"[INFO] alerts.jsonl holds "
 # 1. payload contract
 status, data = get_json("/api/alerts")
 stats = data["stats"]
+# full-file oracle: sources/hosts/stats are computed over the WHOLE file,
+# while `data["alerts"]` is only the default tail (limit=400). Fetch it once,
+# and derive probes from the file itself so the suite works on any capture.
+_, full_alerts_page = get_json("/api/alerts?limit=2000")
+full_alerts = dash._load()
 check("api_status", status == 200, status)
 check("payload_keys",
       {"alerts", "matched", "stats", "timeline", "sources"} <= set(data),
@@ -84,7 +96,8 @@ check("coverage_counts_match_classes",
       all(c["count"] == ps_counts.get(c["key"], 0) for c in stats["coverage"]),
       [(c["key"], c["count"]) for c in stats["coverage"]])
 check("hosts_exclude_wildcard",
-      stats["hosts"] == len({a["src"] for a in data["alerts"] if a["src"] != "*"}))
+      stats["hosts"] == len({a["src"] for a in full_alerts
+                             if a.get("src") not in (None, "*")}))
 
 # 3. class map covers everything the detectors emit (list mirrors the emit sites)
 EMITTED = [
@@ -95,7 +108,7 @@ EMITTED = [
 unmapped = sorted(c for c in EMITTED if c not in dash.CLASS_TO_PS)
 check("all_emitted_classes_mapped", not unmapped, unmapped)
 
-from detectors import FUSED_CLASSES                       # noqa: E402
+from core.detectors import FUSED_CLASSES                       # noqa: E402
 unmapped_fused = sorted(c for c in FUSED_CLASSES if c not in dash.CLASS_TO_PS)
 check("fusion_classes_mapped", not unmapped_fused, unmapped_fused)
 check("fused_maps_outside_ps", dash.CLASS_TO_PS["confirmed_c2_implant"] == "fused")
@@ -117,13 +130,23 @@ check("class_filter", one["matched"] == stats["by_class"][top_class],
       f"{top_class} {one['matched']} vs {stats['by_class'][top_class]}")
 check("class_filter_rows", all(a["threat_class"] == top_class for a in one["alerts"]))
 
-_, src = get_json("/api/alerts?q=10.0.0.7")
+# probes derived from the file itself (see full-file oracle at the top)
+_, src = get_json("/api/alerts?q=%s"
+                  % next(a["src"] for a in full_alerts
+                         if a.get("src") not in (None, "*")))
 check("search_hits_source", src["matched"] > 0 and
-      all("10.0.0.7" in json.dumps(a) for a in src["alerts"]), src["matched"])
+      all(src["alerts"][0]["src"] in json.dumps(a) for a in src["alerts"]),
+      src["matched"])
 _, none = get_json("/api/alerts?q=zzz-definitely-absent-zzz")
 check("search_miss_empty", none["matched"] == 0 and none["alerts"] == [])
-_, ev = get_json("/api/alerts?q=ja4")
-check("search_reaches_evidence", ev["matched"] > 0, ev["matched"])
+# an evidence key from any alert (e.g. "distinct_dst_port_pairs") must be
+# findable by search -- which proves the search reaches the evidence blob
+probe_ev = next((k for a in full_alerts for k in (a.get("evidence") or {})),
+                None)
+_, ev = get_json("/api/alerts?q=%s" % probe_ev if probe_ev
+                 else "/api/alerts?q=zzz-definitely-absent-zzz")
+check("search_reaches_evidence", probe_ev is not None and ev["matched"] > 0,
+      ev["matched"])
 
 _, lim = get_json("/api/alerts?limit=5")
 check("limit_applied", len(lim["alerts"]) == min(5, lim["matched"]), len(lim["alerts"]))
@@ -175,9 +198,16 @@ check("sources_sorted", [s["n"] for s in sources] ==
       sorted([s["n"] for s in sources], reverse=True))
 check("sources_capped", len(sources) <= 6, len(sources))
 check("sources_within_total", sum(s["n"] for s in sources) <= data["matched"])
+# worst-severity must be the worst across the set the sources were computed
+# over: `data["alerts"]` is only the default tail (limit=400), which need not
+# contain every top source -- compare against the full file, and never max()
+# an empty list.
+by_src = {}
+for a in full_alerts:
+    by_src.setdefault(a["src"], []).append(a["severity"])
 check("sources_worst_is_worst", all(
     dash.SEV_RANK[s["worst"]] >= max(
-        dash.SEV_RANK[a["severity"]] for a in data["alerts"] if a["src"] == s["src"])
+        dash.SEV_RANK[sev] for sev in by_src.get(s["src"], ["low"]))
     for s in sources))
 check("sources_dominant_present", all(s["dominant"] in s["classes"] for s in sources))
 check("wildcard_source_labelled", all(s["src"] for s in sources))

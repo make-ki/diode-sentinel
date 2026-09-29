@@ -15,7 +15,7 @@ number (0 for UDP).
 """
 import socket
 
-from config import SIM_START
+from core.config import SIM_START
 
 try:
     import dpkt

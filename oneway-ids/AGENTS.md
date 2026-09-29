@@ -41,7 +41,7 @@ MESSY=1 .venv/bin/python gen_traffic.py    # FP-pressure variant
 zeek -r traffic.pcap local zeek/oneway.zeek
 
 # Tests are plain unittest scripts. There is NO pytest dependency.
-for t in test_*.py; do .venv/bin/python "$t" || break; done
+for t in tests/test_*.py; do .venv/bin/python "$t" || break; done
 ```
 
 Environment: `uv sync` reproduces `.venv` from `uv.lock`; `nix develop` gives

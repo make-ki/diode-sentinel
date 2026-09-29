@@ -32,17 +32,17 @@ import sys
 import time
 from collections import Counter
 
-import config
-from config import (PCAP_PATH, ALERTS_PATH, DURATION, CAPTURE_BATCH,
+from core import config
+from core.config import (PCAP_PATH, ALERTS_PATH, DURATION, CAPTURE_BATCH,
                     CAPTURE_TIMEOUT, LINE_RATE_SAMPLE, STATE_PATH,
                     STATE_SAVE_EVERY)
-from pipeline import StreamProcessor
-from detectors import AlertSink
-from pcap_reader import best_reader, iter_scapy, iter_dpkt
-from live_source import (AfPacketSource, CaptureConfigError,
+from core.pipeline import StreamProcessor
+from core.detectors import AlertSink
+from core.pcap_reader import best_reader, iter_scapy, iter_dpkt
+from core.live_source import (AfPacketSource, CaptureConfigError,
                          CapturePermissionError, PcapStreamSource,
                          list_interfaces)
-from metrics import NidsMetrics
+from core.metrics import NidsMetrics
 
 
 # --------------------------------------------------------------------------
@@ -332,7 +332,7 @@ def load_scorer(sink, ml_model):
     """Build the Tier-2 scorer, degrading to rules-only if unavailable."""
     if not ml_model:
         return None
-    from ml_tier import MLScorer
+    from core.ml_tier import MLScorer
     try:
         return MLScorer.from_file(sink, ml_model)
     except FileNotFoundError:
@@ -348,7 +348,7 @@ def load_dga_cnn(model_path):
     """Build the Tier-2 DGA character CNN, degrading to rules-only if absent."""
     if not model_path:
         return None
-    from dga_cnn import DgaCnnScorer
+    from core.dga_cnn import DgaCnnScorer
     try:
         return DgaCnnScorer.from_file(model_path)
     except FileNotFoundError:
@@ -364,7 +364,7 @@ def load_models567(manifest_path):
     """Load category 5-7 models from a JSON manifest, or stay disabled."""
     if not manifest_path:
         return None
-    from models_567 import Models567
+    from core.models_567 import Models567
     try:
         with open(manifest_path) as fh:
             manifest = json.load(fh)

@@ -10,7 +10,7 @@ label_flow(); known noise documented there.
 """
 import time
 
-from config import ATTACK_HOST_ROLES, VICTIM_IP, FLOOD_WINDOW, \
+from core.config import ATTACK_HOST_ROLES, VICTIM_IP, FLOOD_WINDOW, \
     SCAN_TARGET_IP, EXFIL_DST_IP, C2_IPS, ML_PROBA_THRESHOLD, \
     ML_REAlert_SECS
 
@@ -79,7 +79,7 @@ class MLScorer:
 
     @classmethod
     def from_file(cls, sink, path):
-        import lgb_env  # noqa: F401  (NixOS: preloads libstdc++ before lightgbm)
+        from core import lgb_env  # noqa: F401  (NixOS: preloads libstdc++ before lightgbm)
         import lightgbm as lgb
         return cls(sink, lgb.Booster(model_file=path))
 

@@ -7,19 +7,26 @@ passes are hand-written numpy, and a wrong convolution gradient still TRAINS
 
 Run: .venv/bin/python test_dga_cnn.py
 """
+# Bootstrap: tests import core/, training/ and the root entry points, so put the
+# repo root and its subpackages on sys.path regardless of the invocation CWD.
+import os as _os, sys as _sys
+_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+for _p in (_ROOT, _os.path.join(_ROOT, "training")):
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
 import os
 import random
 import tempfile
 
 import numpy as np
 
-import config
+from core import config
 from collections import Counter
 
-from dga_cnn import (CharCnn, Adam, encode_label, encode_batch, MAX_LEN,
+from core.dga_cnn import (CharCnn, Adam, encode_label, encode_batch, MAX_LEN,
                      VOCAB, PAD_IDX, UNK_IDX, DgaCnnScorer)
-from detectors import DGADetector, shannon_entropy
-import train_dga_cnn as tdc
+from core.detectors import DGADetector, shannon_entropy
+from training import train_dga_cnn as tdc
 
 failures = []
 

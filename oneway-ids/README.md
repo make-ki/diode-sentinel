@@ -79,62 +79,73 @@ dashboard.py        zero-dependency live SOC dashboard (stdlib HTTP server;
 ## Layout
 
 ```
-pyproject.toml     pinned interpreter deps (exact versions the results were
-                   measured with) -- `uv sync` reproduces .venv from uv.lock
-uv.lock            locked dependency graph incl. hashes; `--extra ml567` adds
-                   the category 5-7 model deps (xgboost)
-flake.nix          NixOS dev shell: pinned nixpkgs provides uv + libstdc++
-                   (numpy/scipy/lightgbm need it; Nix keeps it off the loader
-                   path) -- `nix develop`
-.env-ml            same libstdc++ shim without flakes (`source .env-ml`)
-config.py          thresholds, allowlist, label ground truth, paths
-gen_traffic.py     synthetic one-way pcap: benign + attacks (MESSY=1 for
-                   the FP-pressure variant)
-pcap_reader.py     dpkt/scapy backends -> uniform packet tuples
-live_source.py     live ingest -> the SAME packet tuples as pcap_reader:
-                   AfPacketSource (AF_PACKET raw socket) and
-                   PcapStreamSource (unprivileged FIFO/pcap-stream reader),
-                   sharing one dissector (kernel timestamps, drop stats,
-                   deterministic 1-in-N line-rate guard)
-pipeline.py        FlowAssembler + WindowAggregator + StreamProcessor
-                   (one detection path, shared by replay and live)
-detectors.py       6 detectors + FusionEngine + AlertSink
-tls_meta.py        ClientHello parser, JA4/JA3, record reassembly,
-                   TCP seq tracker (retransmit/gap safe)
-hello_profiles.py  synthetic TLS stack profiles (single source of truth
-                   for traffic + intel seed)
-ml_tier.py         flow features + LightGBM scorer (train/serve parity
-                   by construction)
-train_ml.py        temporal-split training + honest evaluation
-dashboard.py       stdlib live SOC dashboard
-metrics.py         stdlib Prometheus exporter (nids_* series on /metrics)
-test_metrics.py    19 tests: exposition format, counters, HTTP, run hooks
-monitoring/        dockerized Prometheus + Grafana: provisioned dashboard,
-                   alert rules -- see docs/monitoring.md
-run.py             end-to-end runner (--live, --parity, --ml, --state)
-test_tls_meta.py   42 tests: parsing, JA4/JA3 golden vectors, reassembly,
-                   seq tracking, detector units
-test_fusion.py     15 tests: noisy-OR, dedupe semantics, decay,
-                   scenario gates, SYN-flood attribution
-test_live.py       64 tests: live/offline parity, FIFO streaming,
-                   idle-window scoring, timestamp rendering,
-                   inventory warm start, socket plumbing, interface
-                   validation, privilege denial
-test_dashboard.py  82 checks: API contracts, filters, timeline bucketing,
-                   static serving, path-traversal guard, live tail of a
-                   half-written line, and asset integrity (no CDN, every
-                   class resolves, every element id exists)
-test_dga_cnn.py    49 checks: encoder, finite-difference gradient check on
-                   the hand-written backprop, training, save/load, held-out
-                   generalisation, and detector tier boundaries
-dga_cnn.py        1D character CNN + Adam, numpy only (no torch/keras/ONNX)
-train_dga_cnn.py   family-held-out training + honest evaluation vs the rules
-model_dga_cnn.npz trained CNN weights (4,930 params, 42 KB)
-bench_dga.py        cross-dataset benchmark on andrewaeva/DGA (external,
-                    unmodified; model loaded as shipped) -> dga_bench.json
-test_bench_dga.py   31 checks: fixture-corpus loader, sampling guarantees,
-                    sorted-stream ordering regression, quorum-sweep math
-BENCH-DGA.md        full-corpus results: per-family TPR, FP, quorum sweep
+pyproject.toml       pinned interpreter deps (exact versions the results were
+                      measured with) -- `uv sync` reproduces .venv from uv.lock
+uv.lock              locked dependency graph incl. hashes; `--extra ml567` adds
+                      the category 5-7 model deps (xgboost)
+flake.nix            NixOS dev shell: pinned nixpkgs provides uv + libstdc++
+                      (numpy/scipy/lightgbm need it; Nix keeps it off the loader
+                      path) -- `nix develop`
+.env-ml              same libstdc++ shim without flakes (`source .env-ml`)
+
+run.py               end-to-end runner (--live, --parity, --ml, --state)
+gen_traffic.py       synthetic one-way pcap: benign + attacks (MESSY=1 for
+                      the FP-pressure variant)
+dashboard.py         stdlib live SOC dashboard
+demo.sh              one-command demo: capture -> all tiers -> dashboard
+core/                the pipeline (one detection path, shared by replay+live)
+  config.py            thresholds, allowlist, label ground truth, paths
+  pcap_reader.py       dpkt/scapy backends -> uniform packet tuples
+  live_source.py       live ingest -> the SAME packet tuples as pcap_reader:
+                        AfPacketSource (AF_PACKET raw socket) and
+                        PcapStreamSource (unprivileged FIFO/pcap-stream
+                        reader), sharing one dissector (kernel timestamps,
+                        drop stats, deterministic 1-in-N line-rate guard)
+  pipeline.py          FlowAssembler + WindowAggregator + StreamProcessor
+  detectors.py         6 detectors + FusionEngine + AlertSink
+  tls_meta.py          ClientHello parser, JA4/JA3, record reassembly,
+                        TCP seq tracker (retransmit/gap safe)
+  quic_meta.py         QUIC Initial key derivation -> JA4 without a secret
+  hello_profiles.py    synthetic TLS stack profiles (single source of truth
+                        for traffic + intel seed)
+  ml_tier.py           flow features + LightGBM scorer (train/serve parity
+                        by construction)
+  metrics.py           stdlib Prometheus exporter (nids_* on /metrics)
+  observability.py     the one-way observability contract (the headline
+                        finding: 5 requested features are impossible)
+  dga_cnn.py           1D character CNN + Adam, numpy only (no torch/ONNX)
+  packet_sequence_cnn.py  category-6 packet-sequence CNN
+  models_567.py        category 5-7 scorers + manifest IO
+training/            trainers + the external benchmark (write model artifacts)
+  train_ml.py          temporal-split training + honest evaluation
+  train_dga_cnn.py     family-held-out training + honest evaluation vs rules
+  train_models_567.py  category 5-7 trainers + threshold sweep + holdout eval
+  bench_dga.py         cross-dataset benchmark on andrewaeva/DGA (external,
+                        unmodified; model loaded as shipped) -> dga_bench.json
+tests/               the 10 suites (plain unittest scripts; no pytest dep)
+  test_tls_meta.py     parsing, JA4/JA3 golden vectors, reassembly,
+                        seq tracking, detector units
+  test_fusion.py       noisy-OR, dedupe semantics, decay, scenario gates
+  test_live.py         live/offline parity, FIFO streaming, idle-window
+                        scoring, timestamp rendering, warm start, socket
+                        plumbing, interface validation, privilege denial
+  test_dashboard.py    API contracts, filters, timeline, static serving,
+                        path-traversal guard, live tail, asset integrity
+  test_dga_cnn.py      encoder, finite-difference gradient check on the
+                        hand-written backprop, training, save/load, held-out
+                        generalisation, tier boundaries
+  test_metrics.py      exposition format, counters, HTTP, run hooks
+  test_contract.py     the observability-contract gate (fails the build if a
+                        detector reads a bidirectional field)
+  test_bench_dga.py    fixture-corpus loader, sampling guarantees,
+                        sorted-stream ordering, quorum-sweep math
+  test_models_567.py   category 5-7 scorers + sequence CNN
+model_ml.txt         trained LightGBM flow model
+model_dga_cnn.npz    trained CNN weights (4,930 params, 42 KB)
+models567/           shipped category 5-7 artifacts + manifest + eval.json
+monitoring/          dockerized Prometheus + Grafana: provisioned dashboard,
+                      alert rules -- see docs/monitoring.md
+BENCH-DGA.md         full-corpus results: per-family TPR, FP, quorum sweep
 BENCH-DGA-FINDINGS.md  superseded pre-full-run note; kept for the quick->full
                     deltas (what scaling confirmed and what it revised)
 models_567.py       optional Tier-2 models for PS classes (d) encrypted
@@ -196,21 +207,21 @@ uv sync --extra ml567   # + category 5-7 model deps (xgboost)
 uv run python gen_traffic.py          # synthetic one-way capture
 uv run python run.py                  # full pipeline + report
 uv run python run.py --parity         # dpkt vs scapy parity check
-uv run python train_ml.py             # train ML tier (temporal split)
+uv run python training/train_ml.py             # train ML tier (temporal split)
 uv run python run.py --ml             # pipeline + ML tier
-uv run python test_tls_meta.py        # 42 unit tests (TLS/JA4)
-uv run python test_fusion.py          # 15 unit tests (fusion)
-uv run python test_quic.py            # 10 unit tests (QUIC)
-uv run python test_live.py            # 64 unit tests (live capture path)
-uv run python train_dga_cnn.py        # train the DGA character CNN
-uv run python test_dga_cnn.py         # 49 unit tests (CNN + backprop)
+uv run python tests/test_tls_meta.py        # 42 unit tests (TLS/JA4)
+uv run python tests/test_fusion.py          # 15 unit tests (fusion)
+uv run python tests/test_quic.py            # 10 unit tests (QUIC)
+uv run python tests/test_live.py            # 64 unit tests (live capture path)
+uv run python training/train_dga_cnn.py        # train the DGA character CNN
+uv run python tests/test_dga_cnn.py         # 49 unit tests (CNN + backprop)
 uv run python run.py --dga-cnn        # pipeline + DGA CNN confirmer
-uv run python train_models_567.py     # train category 5-7 model bundle
+uv run python training/train_models_567.py     # train category 5-7 model bundle
 uv run python run.py --models-567 models567/manifest.json
-uv run python bench_dga.py            # external-corpus benchmark (~6 min)
-uv run python bench_dga.py --quick    # 20k subsample, ~40 s
-uv run python test_bench_dga.py       # 31 unit tests (benchmark harness)
-uv run python test_dashboard.py       # dashboard API + asset tests
+uv run python training/bench_dga.py            # external-corpus benchmark (~6 min)
+uv run python training/bench_dga.py --quick    # 20k subsample, ~40 s
+uv run python tests/test_bench_dga.py       # 31 unit tests (benchmark harness)
+uv run python tests/test_dashboard.py       # dashboard API + asset tests
 uv run python dashboard.py            # live dashboard on :8600
 uv run python run.py --metrics-port 9100   # + Prometheus /metrics
                                        # then: docker compose -f

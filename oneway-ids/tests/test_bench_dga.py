@@ -13,6 +13,13 @@ alerts/h from the sorted list vs 0.46/h from the same corpus shuffled.
 
 Run: .venv/bin/python test_bench_dga.py
 """
+# Bootstrap: tests import core/, training/ and the root entry points, so put the
+# repo root and its subpackages on sys.path regardless of the invocation CWD.
+import os as _os, sys as _sys
+_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+for _p in (_ROOT, _os.path.join(_ROOT, "training")):
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
 import argparse
 import os
 import tempfile
@@ -20,12 +27,12 @@ import urllib.request
 
 import numpy as np
 
-import config
-import bench_dga as bd
-from bench_dga import (load_corpus, fetch_corpus, sample, rule_scores,
+from core import config
+from training import bench_dga as bd
+from training.bench_dga import (load_corpus, fetch_corpus, sample, rule_scores,
                        cnn_scores, compute, report, stream_scenarios,
                        quorum_sweep)
-from detectors import DGADetector, dga_label_of
+from core.detectors import DGADetector, dga_label_of
 
 failures = []
 
@@ -212,7 +219,7 @@ with tempfile.TemporaryDirectory() as tmp:
     # cnn_scores' docstring promises batching is a pure speedup; this is the
     # verification that promise refers to. A real (untrained) CharCnn, three
     # batch sizes, one answer.
-    from dga_cnn import CharCnn
+    from core.dga_cnn import CharCnn
     real = CharCnn(kernels=(3, 5), filters=4, dim=6, seed=11, dropout=0.0)
     labels = ([f"lab{i:03d}x" for i in range(300)]
               + [l for l in corpus["benign"][:20]]
@@ -275,7 +282,7 @@ with tempfile.TemporaryDirectory() as tmp:
 # Not a benchmark number -- just pins that the harness reads the model the
 # pipeline ships (same file path, loadable, deterministic scores).
 if os.path.exists(config.DGA_CNN_MODEL_PATH):
-    from dga_cnn import DgaCnnScorer
+    from core.dga_cnn import DgaCnnScorer
     scorer = DgaCnnScorer.from_file(config.DGA_CNN_MODEL_PATH)
     a = scorer.score("8yuxczaumapqpp")
     b = scorer.score("8yuxczaumapqpp")

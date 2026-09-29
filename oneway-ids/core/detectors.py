@@ -15,8 +15,8 @@ import statistics
 from collections import Counter, defaultdict, deque
 from datetime import datetime, timezone
 
-import config
-from config import (ALLOWLIST, DDOS_MIN_PKT_WINDOW,
+from core import config
+from core.config import (ALLOWLIST, DDOS_MIN_PKT_WINDOW,
                     DDOS_MIN_SPOOF_SRCS, DDOS_SYN_RATIO, SCAN_MIN_PAIRS,
                     EXFIL_MIN_BYTES, EXFIL_RATIO, BEACON_MAX_CV,
                     BEACON_MIN_FLOWS, DGA_MIN_ENTROPY, DGA_MIN_LEN,

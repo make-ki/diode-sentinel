@@ -1,11 +1,18 @@
 """Tests for tls_meta + TlsDetector. Run: .venv/bin/python test_tls_meta.py"""
+# Bootstrap: tests import core/, training/ and the root entry points, so put the
+# repo root and its subpackages on sys.path regardless of the invocation CWD.
+import os as _os, sys as _sys
+_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+for _p in (_ROOT, _os.path.join(_ROOT, "training")):
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
 import hashlib
 from collections import defaultdict
 
-from tls_meta import (TlsRecordReassembler, SeqTracker, parse_client_hello,
+from core.tls_meta import (TlsRecordReassembler, SeqTracker, parse_client_hello,
                       _is_grease)
-import hello_profiles as hp
-from detectors import TlsDetector
+from core import hello_profiles as hp
+from core.detectors import TlsDetector
 
 
 failures = []

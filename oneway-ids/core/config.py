@@ -36,7 +36,7 @@ DGA_MAX_VOWEL_RATIO   = 0.25      # random alnum labels have ~14% vowels
 DGA_MIN_DIGIT_RATIO   = 0.05      # ...and ~30% digits; English words have none
 DGA_MIN_STREAK        = 3         # consecutive high-entropy queries from a src
 
-PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PCAP_PATH   = os.path.join(PROJECT_DIR, "traffic.pcap")
 ALERTS_PATH = os.path.join(PROJECT_DIR, "alerts.jsonl")
 
@@ -71,7 +71,7 @@ STATE_PATH       = os.path.join(PROJECT_DIR, "nids_state.json")
 STATE_SAVE_EVERY = 30.0           # seconds between inventory checkpoints
 
 # ---- TLS detector (Item 1) ----
-from hello_profiles import MALWARE_JA4      # noqa: E402  (single source of truth)
+from core.hello_profiles import MALWARE_JA4      # noqa: E402  (single source of truth)
 
 TLS_PORTS        = {443, 8443}
 BASELINE_SECONDS = 180.0        # inventory learning window (sim time)

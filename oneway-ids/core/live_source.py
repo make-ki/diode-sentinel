@@ -38,9 +38,9 @@ import socket
 import struct
 import time
 
-from config import (CAPTURE_BATCH, CAPTURE_RCVBUF, CAPTURE_TIMEOUT,
+from core.config import (CAPTURE_BATCH, CAPTURE_RCVBUF, CAPTURE_TIMEOUT,
                     LINE_RATE_SAMPLE)
-from pcap_reader import _dns_qname
+from core.pcap_reader import _dns_qname
 
 try:
     import dpkt

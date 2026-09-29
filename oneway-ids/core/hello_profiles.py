@@ -15,7 +15,7 @@ These blobs are shared by gen_traffic.py (traffic generation) and config.py
 from one source of truth. This module imports ONLY tls_meta (no config
 import -> no circular import, no import-time pcap regeneration).
 """
-from tls_meta import parse_client_hello
+from core.tls_meta import parse_client_hello
 
 
 def make_client_hello(client_version=0x0303, ciphers=(), sni=None, alpn=None,

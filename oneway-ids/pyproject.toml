@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 # Test suites are plain unittest scripts (test_*.py), run directly with
-# `uv run python test_*.py` -- no pytest dependency.
+# `uv run python tests/test_*.py` -- no pytest dependency.
 
 [project.optional-dependencies]
 # Category 5-7 learned models (models_567.py): XGBoost for encrypted-session

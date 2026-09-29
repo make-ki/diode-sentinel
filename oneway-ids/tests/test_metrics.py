@@ -11,6 +11,13 @@ exports, flow-gauge sourcing (FlowAssembler.active_count_by_proto), source
 snapshot passthrough, the HTTP endpoint contract, and the run.py hooks
 (run_pipeline stats + run_stream on_source attachment).
 """
+# Bootstrap: tests import core/, training/ and the root entry points, so put the
+# repo root and its subpackages on sys.path regardless of the invocation CWD.
+import os as _os, sys as _sys
+_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+for _p in (_ROOT, _os.path.join(_ROOT, "training")):
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
 import os
 import re
 import sys
@@ -18,11 +25,10 @@ import threading
 import unittest
 import urllib.request
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from detectors import AlertSink
-from metrics import NidsMetrics, _fmt, _mangle
-from pipeline import FlowAssembler
+from core.detectors import AlertSink
+from core.metrics import NidsMetrics, _fmt, _mangle
+from core.pipeline import FlowAssembler
 
 
 def _parse(text):

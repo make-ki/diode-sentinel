@@ -18,8 +18,8 @@
           echo
           echo "one-way-ids dev shell -- uv + libstdc++ ready"
           echo "  uv sync                     # reproduce the exact Python env (uv.lock)"
-          echo "  uv run python test_dga_cnn.py"
-          echo "  uv run python bench_dga.py  # full external-corpus benchmark"
+          echo "  uv run python tests/test_dga_cnn.py"
+          echo "  uv run python training/bench_dga.py  # full external-corpus benchmark"
           echo
           # numpy/scipy/lightgbm need libstdc++.so.6, which Nix keeps off the
           # default loader path. Referencing the store path here (rather than

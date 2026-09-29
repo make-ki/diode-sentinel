@@ -12,6 +12,13 @@ The raw socket itself cannot be exercised without CAP_NET_RAW, so the live
 driver is tested through an injected source (FakeSource) and an injected clock.
 Run: .venv/bin/python test_live.py
 """
+# Bootstrap: tests import core/, training/ and the root entry points, so put the
+# repo root and its subpackages on sys.path regardless of the invocation CWD.
+import os as _os, sys as _sys
+_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+for _p in (_ROOT, _os.path.join(_ROOT, "training")):
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
 import json
 import os
 import socket
@@ -21,15 +28,15 @@ import threading
 import time
 from datetime import datetime, timezone
 
-import config
-from config import PCAP_PATH, SIM_START
-from detectors import AlertSink, TlsDetector, _iso
-from live_source import (_parse_packet_stats, _cmsg_timestamp, SO_TIMESTAMP,
+from core import config
+from core.config import PCAP_PATH, SIM_START
+from core.detectors import AlertSink, TlsDetector, _iso
+from core.live_source import (_parse_packet_stats, _cmsg_timestamp, SO_TIMESTAMP,
                          AfPacketSource, CaptureConfigError,
                          CapturePermissionError, PcapStreamSource,
                          list_interfaces)
-from pipeline import WindowAggregator
-from pcap_reader import iter_dpkt
+from core.pipeline import WindowAggregator
+from core.pcap_reader import iter_dpkt
 from run import run_live, run_pipeline
 
 failures = []

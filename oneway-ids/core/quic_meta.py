@@ -170,7 +170,7 @@ def extract_quic_client_hello(payload: bytes):
         # wrap as a TLS record so tls_meta can parse it unchanged
         fake_record = (b"\x16\x03\x01"
                        + len(stream).to_bytes(2, "big") + stream)
-        from tls_meta import parse_client_hello
+        from core.tls_meta import parse_client_hello
         meta = parse_client_hello(fake_record)
         if meta is not None:
             meta["transport"] = "quic"

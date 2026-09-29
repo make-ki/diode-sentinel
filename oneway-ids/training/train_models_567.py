@@ -8,22 +8,30 @@ Usage:
 The split is temporal: flows/windows before t=390 train the models and later
 traffic evaluates them. The rule detectors remain enabled during serving.
 """
+# Bootstrap: this script lives in training/, one level below the repo root, so
+# the core package and sibling modules resolve no matter the CWD it is invoked
+# from.
+import os as _os, sys as _sys
+_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+for _p in (_ROOT, _os.path.join(_ROOT, "training")):
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
 import argparse
 import json
 import os
 
 import numpy as np
 
-from config import (ATTACK_HOST_ROLES, C2_IPS, EXFIL_DST_IP, PCAP_PATH,
+from core.config import (ATTACK_HOST_ROLES, C2_IPS, EXFIL_DST_IP, PCAP_PATH,
                     SCAN_TARGET_IP, WINDOW)
-from detectors import ExfilDetector
-from models_567 import (_anomaly_probability, _probability,
+from core.detectors import ExfilDetector
+from core.models_567 import (_anomaly_probability, _probability,
                         encrypted_metadata_features, exfil_features,
                         scan_features)
-from packet_sequence_cnn import PacketSequenceCnn, sequence_token
-from dga_cnn import Adam, encode_batch
-from pcap_reader import iter_dpkt
-from pipeline import FlowAssembler, WindowAggregator
+from core.packet_sequence_cnn import PacketSequenceCnn, sequence_token
+from core.dga_cnn import Adam, encode_batch
+from core.pcap_reader import iter_dpkt
+from core.pipeline import FlowAssembler, WindowAggregator
 
 
 def _deps():

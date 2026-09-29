@@ -5,6 +5,14 @@ corpus, not on the generator it was trained against.
 WHY THIS EXISTS
 ---------------
 `train_dga_cnn.py` measures held-out *families*, but every label in it comes
+# Bootstrap: this script lives in training/, one level below the repo root, so
+# the core package and sibling modules resolve no matter the CWD it is invoked
+# from.
+import os as _os, sys as _sys
+_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+for _p in (_ROOT, _os.path.join(_ROOT, "training")):
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
 from this repository's own generator. A judge is entitled to ask the obvious
 follow-up: "your benign corpus and your DGA corpus were written by the same
 person -- how do you know the model learned DGA morphology rather than your
@@ -60,9 +68,9 @@ import urllib.request
 from collections import Counter
 from statistics import median
 
-from config import PROJECT_DIR
-from detectors import DGADetector, dga_label_of, dga_lexical_gate, shannon_entropy
-from config import DGA_CNN_PROB, DGA_CNN_MODEL_PATH
+from core.config import PROJECT_DIR
+from core.detectors import DGADetector, dga_label_of, dga_lexical_gate, shannon_entropy
+from core.config import DGA_CNN_PROB, DGA_CNN_MODEL_PATH
 
 # --------------------------------------------------------------------------
 # the corpus
@@ -311,7 +319,7 @@ def stream_scenarios(model, corpus, limit, qps=1.0, log=print):
     Benign is run on ONE source so that the per-source alert rate is a real
     per-host number rather than an artefact of spreading labels across hosts.
     """
-    from dga_cnn import DgaCnnScorer
+    from core.dga_cnn import DgaCnnScorer
     scorer = DgaCnnScorer(model, threshold=0.5)
 
     # sample() with n=None returns a seeded SHUFFLE of the full list: the
@@ -436,7 +444,7 @@ def quorum_sweep(model, corpus, rows=100_000, per_family=4_000, qps=1.0,
     `DGA_CNN_MIN_STREAK` from a guessed constant into a measured one -- and
     shows the cost of raising it, in queries-to-first-alert per DGA family.
     """
-    from dga_cnn import DgaCnnScorer
+    from core.dga_cnn import DgaCnnScorer
     scorer = DgaCnnScorer(model, threshold=0.5)
     benign = sample(corpus["benign"], rows, seed=505)
     benign_q = [d + ".com" if "." not in d else d for d in benign]
@@ -701,7 +709,7 @@ def main():
           else "sample: full corpus, seeded shuffle per scenario")
     print()
     corpus = load_corpus(args.data_dir)
-    from dga_cnn import CharCnn
+    from core.dga_cnn import CharCnn
     model = CharCnn.load(DGA_CNN_MODEL_PATH)
     print(f"model_dga_cnn.npz sha256 {sha256(DGA_CNN_MODEL_PATH)[:16]}...")
     print()

@@ -62,7 +62,7 @@ represents auto-generated CDN hostnames — real-world FP pressure is likely
 ```bash
 nix develop                       # NixOS: uv + libstdc++ (flake.lock pins nixpkgs)
 uv sync                           # exact pinned interpreter deps from uv.lock
-uv run python bench_dga.py        # full corpus, ~6 min -> dga_bench.json
-uv run python bench_dga.py --quick    # 20k uniform subsample, ~40 s
+uv run python training/bench_dga.py        # full corpus, ~6 min -> dga_bench.json
+uv run python training/bench_dga.py --quick    # 20k uniform subsample, ~40 s
 uv run python test_bench_dga.py   # 31 offline harness checks
 ```

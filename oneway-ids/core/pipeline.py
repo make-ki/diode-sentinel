@@ -7,11 +7,11 @@ state assumptions, no response-side features.
 """
 from collections import Counter, defaultdict
 
-from config import WINDOW, IDLE_TIMEOUT, TICK_INTERVAL, TLS_PORTS
-from detectors import (DDosDetector, ScanDetector, ExfilDetector,
+from core.config import WINDOW, IDLE_TIMEOUT, TICK_INTERVAL, TLS_PORTS
+from core.detectors import (DDosDetector, ScanDetector, ExfilDetector,
                        BeaconDetector, DGADetector, TlsDetector, FusionEngine)
-from tls_meta import TlsRecordReassembler, SeqTracker, parse_client_hello
-from quic_meta import is_quic_initial, extract_quic_client_hello
+from core.tls_meta import TlsRecordReassembler, SeqTracker, parse_client_hello
+from core.quic_meta import is_quic_initial, extract_quic_client_hello
 
 
 class FlowAssembler:

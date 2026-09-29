@@ -6,7 +6,15 @@ pcap, with generator-derived ground truth labels and a TEMPORAL split
 
 Run: .venv/bin/python train_ml.py
 """
-import lgb_env  # noqa: F401  (NixOS: preloads libstdc++ before lightgbm)
+# Bootstrap: this script lives in training/, one level below the repo root, so
+# the core package and sibling modules resolve no matter the CWD it is invoked
+# from.
+import os as _os, sys as _sys
+_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+for _p in (_ROOT, _os.path.join(_ROOT, "training")):
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
+from core import lgb_env  # noqa: F401  (NixOS: preloads libstdc++ before lightgbm)
 import lightgbm as lgb
 try:
     from sklearn.metrics import classification_report, confusion_matrix
@@ -14,10 +22,10 @@ except ImportError as e:
     raise SystemExit(
         f"missing ML deps ({e}). pip install lightgbm scikit-learn numpy")
 
-from config import PCAP_PATH, ML_MODEL_PATH
-from pcap_reader import iter_dpkt
-from pipeline import FlowAssembler
-from ml_tier import flow_features, label_flow, FEATURE_NAMES
+from core.config import PCAP_PATH, ML_MODEL_PATH
+from core.pcap_reader import iter_dpkt
+from core.pipeline import FlowAssembler
+from core.ml_tier import flow_features, label_flow, FEATURE_NAMES
 
 
 def collect_flows(path):

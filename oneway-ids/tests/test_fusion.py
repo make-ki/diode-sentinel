@@ -1,6 +1,13 @@
 """Tests for FusionEngine + DDosDetector attribution.
 Run: .venv/bin/python test_fusion.py"""
-from detectors import FusionEngine, DDosDetector, ScanDetector, ExfilDetector
+# Bootstrap: tests import core/, training/ and the root entry points, so put the
+# repo root and its subpackages on sys.path regardless of the invocation CWD.
+import os as _os, sys as _sys
+_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+for _p in (_ROOT, _os.path.join(_ROOT, "training")):
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
+from core.detectors import FusionEngine, DDosDetector, ScanDetector, ExfilDetector
 
 failures = []
 

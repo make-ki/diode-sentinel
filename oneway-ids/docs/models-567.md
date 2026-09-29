@@ -83,7 +83,7 @@ Generate or refresh the synthetic capture, then train:
 
 ```bash
 uv run python gen_traffic.py
-uv run python train_models_567.py --pcap traffic.pcap --out models567
+uv run python training/train_models_567.py --pcap traffic.pcap --out models567
 ```
 
 Training uses the synthetic generator's labels and a temporal split at 390

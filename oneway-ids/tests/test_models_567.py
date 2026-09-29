@@ -1,13 +1,20 @@
 """Tests for category 5-7 model features and optional serving."""
+# Bootstrap: tests import core/, training/ and the root entry points, so put the
+# repo root and its subpackages on sys.path regardless of the invocation CWD.
+import os as _os, sys as _sys
+_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+for _p in (_ROOT, _os.path.join(_ROOT, "training")):
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
 import os
 import tempfile
 
 from collections import defaultdict
 
-from models_567 import (Models567, encrypted_metadata_features,
+from core.models_567 import (Models567, encrypted_metadata_features,
                         exfil_features, flow_sequence_features, scan_features)
-from packet_sequence_cnn import PacketSequenceCnn, sequence_token
-from pipeline import FlowAssembler
+from core.packet_sequence_cnn import PacketSequenceCnn, sequence_token
+from core.pipeline import FlowAssembler
 
 
 failures = []

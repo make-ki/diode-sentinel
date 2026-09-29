@@ -4,9 +4,9 @@
 corpus (no `--quick` subsample), produced by:
 
 ```bash
-.venv/bin/python bench_dga.py            # 336 s wall, writes dga_bench.json
-.venv/bin/python bench_dga.py --quick    # 20k uniform subsample (~40 s)
-.venv/bin/python test_bench_dga.py       # offline harness tests (fixture corpus)
+.venv/bin/python training/bench_dga.py            # 336 s wall, writes dga_bench.json
+.venv/bin/python training/bench_dga.py --quick    # 20k uniform subsample (~40 s)
+.venv/bin/python tests/test_bench_dga.py       # offline harness tests (fixture corpus)
 ```
 
 Raw artifacts: `dga_bench.json` (machine-readable, includes the model sha256
