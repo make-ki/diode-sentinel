@@ -4,9 +4,9 @@
 corpus (no `--quick` subsample), produced by:
 
 ```bash
-.venv/bin/python bench_dga.py            # 336 s wall, writes dga_bench.json
-.venv/bin/python bench_dga.py --quick    # 20k uniform subsample (~40 s)
-.venv/bin/python test_bench_dga.py       # offline harness tests (fixture corpus)
+.venv/bin/python training/bench_dga.py            # 336 s wall, writes dga_bench.json
+.venv/bin/python training/bench_dga.py --quick    # 20k uniform subsample (~40 s)
+.venv/bin/python tests/test_bench_dga.py       # offline harness tests (fixture corpus)
 ```
 
 Raw artifacts: `dga_bench.json` (machine-readable, includes the model sha256
@@ -14,7 +14,7 @@ and both corpus file digests) and `.bench/full_run.log` (console transcript;
 `.bench/` is gitignored).
 
 The model is loaded **as shipped** — not retrained, refit, or threshold-tuned
-on this corpus. `bench_dga.py` imports `dga_lexical_gate` and drives the real
+on this corpus. `training/bench_dga.py` imports `dga_lexical_gate` (from `core/detectors.py`) and drives the real
 `DGADetector`, so every number below describes the deployed policy, including
 its streak/quorum layers, not a lookalike.
 
@@ -59,7 +59,7 @@ previously only asserted.
 Families the CNN does *not* separate — rovnix (0.226) and matsnu (0.257) at
 the 0.5 threshold — are the honest counterweight: matsnu is a dictionary DGA
 whose labels are morphologically benign, consistent with the family-held-out
-result in `train_dga_cnn.py` (dictionary kind: CNN 0.007). The threshold sweep
+result in `training/train_dga_cnn.py` (dictionary kind: CNN 0.007). The threshold sweep
 shows raising the operating point cannot rescue them without giving up the
 families it does catch:
 
@@ -122,7 +122,7 @@ almost nothing statistically over k=4 (0.07 vs 0.46/h) while costing pushdo
 dearly and dropping matsnu entirely; k=8 additionally loses pushdo. The
 full-corpus sweep slightly **revised the quick-run estimates** (which had
 6/8 at k=4 and 321 queries to first alert for pushdo): at scale k=4 holds
-7/8 with pushdo at 164 queries. `DGA_CNN_MIN_STREAK = 4` in `config.py`
+7/8 with pushdo at 164 queries. `DGA_CNN_MIN_STREAK = 4` in `core/config.py`
 stands, now with the full-corpus sweep recorded in its comment.
 
 Per-family end-to-end at the shipped policy (dedicated host per family):
@@ -194,7 +194,7 @@ order-sensitive by construction.
 
 ## Verified / not verified
 
-- ✅ `bench_dga.py` full run: 336 s wall, deterministic given the corpus
+- ✅ `training/bench_dga.py` full run: 336 s wall, deterministic given the corpus
   digests recorded in `dga_bench.json`
 - ✅ `run.py` → byte-identical vs `alerts_rules.reference.jsonl`
 - ✅ `run.py --ml` → byte-identical vs `alerts_ml.reference.jsonl`

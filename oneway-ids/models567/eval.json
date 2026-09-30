@@ -1,0 +1,360 @@
+{
+  "split_t": 390.0,
+  "benign_fp_budget": 0.005,
+  "models": {
+    "encrypted_xgb": {
+      "holdout_n": 1092,
+      "malicious_n": 50,
+      "benign_n": 1042,
+      "at_threshold": {
+        "threshold": 0.5,
+        "true_positives": 50,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "recall": 1.0,
+        "precision": 1.0,
+        "benign_fp_rate": 0.0
+      },
+      "sweep": [
+        {
+          "threshold": 0.5,
+          "detection_rate": 1.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.6,
+          "detection_rate": 1.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.7,
+          "detection_rate": 1.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.8,
+          "detection_rate": 1.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.9,
+          "detection_rate": 1.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.95,
+          "detection_rate": 0.94,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.99,
+          "detection_rate": 0.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        }
+      ],
+      "why_this_threshold": "most sensitive point with benign FP <= 0.005"
+    },
+    "sequence_cnn": {
+      "holdout_n": 1092,
+      "malicious_n": 50,
+      "benign_n": 1042,
+      "at_threshold": {
+        "threshold": 0.5,
+        "true_positives": 50,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "recall": 1.0,
+        "precision": 1.0,
+        "benign_fp_rate": 0.0
+      },
+      "sweep": [
+        {
+          "threshold": 0.5,
+          "detection_rate": 1.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.6,
+          "detection_rate": 1.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.7,
+          "detection_rate": 1.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.8,
+          "detection_rate": 1.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.9,
+          "detection_rate": 1.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.95,
+          "detection_rate": 1.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.99,
+          "detection_rate": 1.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        }
+      ],
+      "why_this_threshold": "most sensitive point with benign FP <= 0.005"
+    },
+    "scan_rf": {
+      "holdout_n": 321,
+      "malicious_n": 2,
+      "benign_n": 319,
+      "at_threshold": {
+        "threshold": 0.5,
+        "true_positives": 2,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "recall": 1.0,
+        "precision": 1.0,
+        "benign_fp_rate": 0.0
+      },
+      "sweep": [
+        {
+          "threshold": 0.5,
+          "detection_rate": 1.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.6,
+          "detection_rate": 1.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.7,
+          "detection_rate": 1.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.8,
+          "detection_rate": 1.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.9,
+          "detection_rate": 0.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.95,
+          "detection_rate": 0.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.99,
+          "detection_rate": 0.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        }
+      ],
+      "why_this_threshold": "most sensitive point with benign FP <= 0.005"
+    },
+    "scan_iforest": {
+      "holdout_n": 321,
+      "malicious_n": 2,
+      "benign_n": 319,
+      "at_threshold": {
+        "threshold": 0.99,
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 2,
+        "recall": 0.0,
+        "precision": 0.0,
+        "benign_fp_rate": 0.0
+      },
+      "sweep": [
+        {
+          "threshold": 0.5,
+          "detection_rate": 1.0,
+          "benign_fp": 281,
+          "benign_fp_rate": 0.8808777429467085
+        },
+        {
+          "threshold": 0.6,
+          "detection_rate": 1.0,
+          "benign_fp": 278,
+          "benign_fp_rate": 0.8714733542319749
+        },
+        {
+          "threshold": 0.7,
+          "detection_rate": 1.0,
+          "benign_fp": 256,
+          "benign_fp_rate": 0.8025078369905956
+        },
+        {
+          "threshold": 0.8,
+          "detection_rate": 1.0,
+          "benign_fp": 154,
+          "benign_fp_rate": 0.4827586206896552
+        },
+        {
+          "threshold": 0.9,
+          "detection_rate": 1.0,
+          "benign_fp": 19,
+          "benign_fp_rate": 0.05956112852664577
+        },
+        {
+          "threshold": 0.95,
+          "detection_rate": 0.0,
+          "benign_fp": 4,
+          "benign_fp_rate": 0.012539184952978056
+        },
+        {
+          "threshold": 0.99,
+          "detection_rate": 0.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        }
+      ],
+      "why_this_threshold": "most sensitive point with benign FP <= 0.005"
+    },
+    "exfil_xgb": {
+      "holdout_n": 542,
+      "malicious_n": 6,
+      "benign_n": 536,
+      "at_threshold": {
+        "threshold": 0.5,
+        "true_positives": 6,
+        "false_positives": 0,
+        "false_negatives": 0,
+        "recall": 1.0,
+        "precision": 1.0,
+        "benign_fp_rate": 0.0
+      },
+      "sweep": [
+        {
+          "threshold": 0.5,
+          "detection_rate": 1.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.6,
+          "detection_rate": 0.8333333333333334,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.7,
+          "detection_rate": 0.8333333333333334,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.8,
+          "detection_rate": 0.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.9,
+          "detection_rate": 0.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.95,
+          "detection_rate": 0.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.99,
+          "detection_rate": 0.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        }
+      ],
+      "why_this_threshold": "most sensitive point with benign FP <= 0.005"
+    },
+    "exfil_iforest": {
+      "holdout_n": 542,
+      "malicious_n": 6,
+      "benign_n": 536,
+      "at_threshold": {
+        "threshold": 0.95,
+        "true_positives": 0,
+        "false_positives": 0,
+        "false_negatives": 6,
+        "recall": 0.0,
+        "precision": 0.0,
+        "benign_fp_rate": 0.0
+      },
+      "sweep": [
+        {
+          "threshold": 0.5,
+          "detection_rate": 1.0,
+          "benign_fp": 496,
+          "benign_fp_rate": 0.9253731343283582
+        },
+        {
+          "threshold": 0.6,
+          "detection_rate": 1.0,
+          "benign_fp": 474,
+          "benign_fp_rate": 0.8843283582089553
+        },
+        {
+          "threshold": 0.7,
+          "detection_rate": 1.0,
+          "benign_fp": 433,
+          "benign_fp_rate": 0.8078358208955224
+        },
+        {
+          "threshold": 0.8,
+          "detection_rate": 1.0,
+          "benign_fp": 136,
+          "benign_fp_rate": 0.2537313432835821
+        },
+        {
+          "threshold": 0.9,
+          "detection_rate": 1.0,
+          "benign_fp": 12,
+          "benign_fp_rate": 0.022388059701492536
+        },
+        {
+          "threshold": 0.95,
+          "detection_rate": 0.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        },
+        {
+          "threshold": 0.99,
+          "detection_rate": 0.0,
+          "benign_fp": 0,
+          "benign_fp_rate": 0.0
+        }
+      ],
+      "why_this_threshold": "most sensitive point with benign FP <= 0.005"
+    }
+  }
+}

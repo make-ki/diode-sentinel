@@ -1,0 +1,15 @@
+apiVersion: 1
+
+# Dashboard provider: scan the mounted dashboards directory. Dashboard JSON
+# lives in ../dashboards/ and is loaded read-only on start.
+providers:
+  - name: nids
+    orgId: 1
+    folder: NIDS
+    folderUid: nids-folder
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

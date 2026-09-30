@@ -1,0 +1,163 @@
+[
+  {
+    "id": "intro",
+    "label": "DIODE SENTINEL",
+    "title": "Small observations. A larger picture.",
+    "minSeconds": 18,
+    "graphic": "receive",
+    "clip": null,
+    "text": "A packet is a small observation. Where did it come from? Where is it going? How big is it, and when did it arrive? Put those observations together, and a pattern begins to appear. This is Diode Sentinel.",
+    "briefSections": [
+      "0",
+      "9",
+      "10"
+    ]
+  },
+  {
+    "id": "receive",
+    "label": "RECEIVE-SIDE MONITORING",
+    "title": "Watch the observations arrive.",
+    "minSeconds": 22,
+    "graphic": "receive",
+    "clip": "overview",
+    "text": "The sensor watches the receive side of a hardware data diode. Traffic arrives in one direction. Here, a synthetic replay is running through the actual software. Watch the packet counters, the sensor state, and the alert queue. These are observations being processed, as they arrive.",
+    "briefSections": [
+      "2.9",
+      "9",
+      "10"
+    ]
+  },
+  {
+    "id": "organize",
+    "label": "PACKETS \u2192 CONTEXT",
+    "title": "Put the observations together.",
+    "minSeconds": 24,
+    "graphic": "organize",
+    "clip": "overview",
+    "text": "First, we give each packet a useful shape: addresses, ports, protocol, size, and time. Related packets form a flow. Alongside that, timed windows collect what happens across the traffic. The clock closes idle flows and completed windows, even when the next packet never arrives.",
+    "briefSections": [
+      "2.2",
+      "9",
+      "10"
+    ]
+  },
+  {
+    "id": "rhythm",
+    "label": "EXPERIMENT 01 \u00b7 TIMING",
+    "title": "Listen to the rhythm.",
+    "minSeconds": 22,
+    "graphic": "rhythm",
+    "clip": "beacon",
+    "text": "Look at these flow starts. The gaps are almost even. Change the spacing, and the rhythm changes. Our beacon rule measures that regularity. Now open the real alert: the interval and its variation are recorded here. The analyst can inspect the pattern behind the score.",
+    "briefSections": [
+      "9",
+      "10"
+    ]
+  },
+  {
+    "id": "rolling",
+    "label": "EXPERIMENT 02 \u00b7 ROLLING CONTEXT",
+    "title": "Keep both windows in view.",
+    "minSeconds": 26,
+    "graphic": "rolling",
+    "clip": "rolling-scan",
+    "text": "A pattern can be spread across time. In this illustration, one source touches ten distinct destination and port pairs, then ten different pairs in the next window. With rolling scan enabled, the rule keeps a sixty second horizon. The union reaches twenty. Here is that pattern, recorded by the actual pipeline.",
+    "briefSections": [
+      "10"
+    ]
+  },
+  {
+    "id": "history",
+    "label": "EXPERIMENT 03 \u00b7 SOURCE CONTEXT",
+    "title": "Remember whose history it is.",
+    "minSeconds": 26,
+    "graphic": "history",
+    "clip": "source-context",
+    "text": "Now suppose two hosts contact the same destination. It is familiar to the first host. That does not make it familiar to the second. With source context enabled, we check this host's retained history, then compare transfer volume with its own baseline. The alert records the lookback and coverage that qualify that observation.",
+    "briefSections": [
+      "2.3",
+      "10"
+    ]
+  },
+  {
+    "id": "dns",
+    "label": "DOMAIN-NAME ANALYSIS",
+    "title": "Read the shape of a name.",
+    "minSeconds": 23,
+    "graphic": "dns",
+    "clip": "dns",
+    "text": "A domain name is another kind of sequence. Our character C N N examines patterns in its letters. Separate rules inspect the DNS query's length and type. In the software, the detector identifier tells us which check produced this record. We can see the observed query measurements beside it.",
+    "briefSections": [
+      "2.5",
+      "9",
+      "10"
+    ]
+  },
+  {
+    "id": "encrypted",
+    "label": "ENCRYPTED-SESSION ANALYSIS",
+    "title": "Two branches. Different observations.",
+    "minSeconds": 32,
+    "graphic": "encrypted",
+    "clip": "encrypted-metadata",
+    "text": "An encrypted session still has an observable shape. The sequence C N N uses packet sizes and timing. A separate X G Boost model uses observed Client Hello metadata and flow measurements. Each branch receives the inputs it needs. QUIC Initial packets expose Client Hello metadata through public protocol inputs. Open the model alert: cipher counts, extension counts, bytes, and duration now have names.",
+    "briefSections": [
+      "2.4",
+      "9",
+      "10"
+    ]
+  },
+  {
+    "id": "models",
+    "label": "PARALLEL DETECTOR BRANCHES",
+    "title": "The right inputs. The right branch.",
+    "minSeconds": 22,
+    "graphic": "models",
+    "clip": "scan-model",
+    "text": "The same engine routes different observations to different checks. Random Forest uses scan window fan out. Exfiltration X G Boost uses transfer window features. Light G B M adds flow scoring. Eligible Isolation Forest scores provide supporting evidence. These branches serve different purposes; the recorded alert identifies its detector and its inputs.",
+    "briefSections": [
+      "9",
+      "10"
+    ]
+  },
+  {
+    "id": "fusion",
+    "label": "SOURCE ATTRIBUTION & CORRELATION",
+    "title": "Follow the source. Connect the signals.",
+    "minSeconds": 22,
+    "graphic": "fusion",
+    "clip": "source-correlation",
+    "text": "Detectors first write their own alerts. Then the correlation layer considers recent qualifying signals from the same source. Filter that source, open a correlated record, and inspect its contributors. The observations stay attached, so the analyst can follow how the signals were connected.",
+    "briefSections": [
+      "2.8",
+      "9",
+      "10"
+    ]
+  },
+  {
+    "id": "handoff",
+    "label": "THE ANALYST VIEW",
+    "title": "Carry the evidence forward.",
+    "minSeconds": 28,
+    "graphic": "handoff",
+    "clip": "evidence-export",
+    "text": "This is where the explanation becomes a workflow. Open an alert. Read its named measurements. Inspect the original evidence. Then download the selected alert as J S O N. The bundle preserves the record, the active filters, and a hash of that record. The software carries the observations all the way to the analyst.",
+    "briefSections": [
+      "9",
+      "10"
+    ]
+  },
+  {
+    "id": "closing",
+    "label": "BUILT BY SAMARAGS",
+    "title": "See everything. Touch nothing.",
+    "minSeconds": 14,
+    "graphic": "receive",
+    "clip": null,
+    "text": "From packets, to patterns, to inspectable evidence. Diode Sentinel. Passive, receive side monitoring. See everything. Touch nothing. Built by Samarags.",
+    "briefSections": [
+      "9",
+      "10"
+    ]
+  }
+]

@@ -11,3 +11,8 @@ oneway-ids/.bench/
 # OS / editor
 .DS_Store
 *.swp
+
+# Local SIH search exports, outside the Diode Sentinel source tree.
+/scrape_sih2026.py
+/sih2026_sorted_with_delta - sih2026_sorted_with_delta.csv
+/sih2026_sorted_with_delta - sih2026_sorted_with_delta.csv.bak

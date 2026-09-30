@@ -3,76 +3,68 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>One-Way NIDS — SOC Dashboard</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='19'>%F0%9F%9B%A1</text></svg>">
+<title>Diode Sentinel · Security operations</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='5' fill='%23000000'/%3E%3Cpath d='M7 16h15m-5-5 5 5-5 5m8-14v18' fill='none' stroke='%23ff7a1a' stroke-width='2'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/vendor/daisyui.css">
 <link rel="stylesheet" href="/static/app.css">
+<link id="motion-css" rel="stylesheet" href="/static/animations.css">
 </head>
 <body>
 
-<div class="ambient" aria-hidden="true"></div>
+<a class="skip-link" href="#alert-table">Skip to alerts</a>
+<aside class="app-nav" aria-label="Primary navigation">
+  <a class="nav-logo" href="#overview" aria-label="Diode Sentinel home">DS<span>Diode Sentinel<small>Security operations</small></span></a>
+  <div class="nav-label">Workspace</div>
+  <nav>
+    <a href="#overview" class="nav-link active" aria-current="location"><span aria-hidden="true">▦</span> Overview</a>
+    <a href="#alerts" class="nav-link"><span aria-hidden="true">≡</span> Alert queue</a>
+    <a href="#sensor-strip" class="nav-link"><span aria-hidden="true">⌁</span> Sensor details</a>
+  </nav>
+  <div class="nav-note"><span class="boundary-mark">→ |</span><strong>One-way monitoring</strong><p>Receive-side visibility.<br>No response-side telemetry.</p></div>
+</aside>
 
 <header class="topbar">
-  <div class="brand">
-    <span class="brand-mark" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12 3l7 3v5.5c0 4.3-2.9 8.2-7 9.5-4.1-1.3-7-5.2-7-9.5V6l7-3z"/>
-        <path d="M12 9v4"/><path d="M12 16.2h.01"/>
-      </svg>
-    </span>
-    <div class="brand-text">
-      <h1>One-Way <span>NIDS</span></h1>
-      <p>PS-26145 · unidirectional traffic threat detection · read-only enclave feed</p>
-    </div>
-  </div>
+  <div class="breadcrumb">Workspace <span>/</span> <strong>Overview</strong></div>
 
   <div class="topbar-actions">
-    <span class="live-pill" id="live-pill">
+    <span class="live-pill" id="live-pill" role="status">
       <i class="live-dot"></i><span id="live-label">connecting…</span>
     </span>
     <span class="clock" id="clock">--:--:--</span>
-    <button class="btn btn-xs btn-ghost" id="pause-btn" type="button">Pause</button>
+    <button class="btn btn-xs btn-ghost" id="pause-btn" type="button">Pause updates</button>
     <button class="btn btn-xs btn-ghost" id="refresh-btn" type="button">Refresh</button>
-    <button class="btn btn-xs btn-ghost" id="theme-btn" type="button">Light</button>
+    <button class="btn btn-xs btn-ghost" id="theme-btn" type="button">Light theme</button>
   </div>
 </header>
 
-<main class="shell">
+<main class="shell" id="overview">
+  <div class="page-heading">
+    <div><div class="eyebrow">SECURITY OPERATIONS</div><h1>Traffic overview</h1><p>Inspect observed signals, supporting evidence and source context.</p></div>
+    <div class="capture-period"><span>Alert time range · UTC</span><strong id="capture-range">Waiting for data</strong></div>
+  </div>
+  <div id="connection-notice" role="status" hidden></div>
+  <div id="demo-notice" class="scope-note" hidden>Synthetic replay · Generated traffic and simulated local JA4 indicator. Alert records are detector outputs; they are not scenario ground truth.</div>
 
   <section class="sensor-strip" id="sensor-strip" aria-label="sensor status"></section>
 
-  <section class="kpis" id="kpis" aria-label="alert summary"></section>
+  <section class="kpis" id="kpis" aria-label="signal provenance summary"></section>
+  <p class="scope-note" id="signal-scope">Counts describe alert records, not confirmed incidents.</p>
 
-  <section class="grid grid-charts">
+  <section class="grid grid-stream" id="alerts">
     <article class="panel">
       <header class="panel-head">
-        <h2>Alert timeline</h2>
-        <span class="panel-hint" id="timeline-hint">severity per time bucket</span>
-      </header>
-      <div class="chart-box"><canvas id="timeline-chart"></canvas></div>
-    </article>
-    <article class="panel">
-      <header class="panel-head">
-        <h2>Threat mix</h2>
-        <span class="panel-hint" id="mix-hint">by threat class</span>
-      </header>
-      <div class="chart-box chart-box-ring"><canvas id="mix-chart"></canvas></div>
-    </article>
-  </section>
-
-  <section class="grid grid-stream">
-    <article class="panel">
-      <header class="panel-head">
-        <h2>Alert stream</h2>
-        <span class="panel-hint" id="stream-hint">tailing alerts.jsonl</span>
+        <h2>Alert queue <span class="section-count" id="queue-count">—</span></h2>
+        <span class="panel-hint" id="stream-hint">Newest first</span>
       </header>
       <div class="filters" id="filters"></div>
+      <div class="time-filters"><label>From · UTC <input type="datetime-local" step="1" id="time-from"></label><label>To · UTC <input type="datetime-local" step="1" id="time-to"></label><button type="button" class="btn btn-xs" id="clear-time">Clear time</button></div>
+      <div class="source-filter" id="source-filter" hidden><span id="source-filter-label"></span><button class="btn btn-xs" type="button" id="clear-source">Clear source</button></div>
       <div class="table-wrap">
-        <table class="table table-sm table-pin-rows" id="alert-table">
+        <table class="table table-sm table-pin-rows" id="alert-table" tabindex="-1">
           <thead>
             <tr>
-              <th>time</th><th>severity</th><th>threat class</th>
-              <th>src → dst</th><th>conf</th><th>signal</th>
+              <th scope="col">Time · UTC</th><th scope="col">Severity</th><th scope="col">Detection</th>
+              <th scope="col">Source → Destination</th><th scope="col">Score</th><th scope="col">Observed signal</th>
             </tr>
           </thead>
           <tbody id="alert-rows"></tbody>
@@ -83,23 +75,46 @@
     <aside class="side">
       <article class="panel">
         <header class="panel-head">
-          <h2>Top talkers</h2>
-          <span class="panel-hint">offending sources</span>
+          <h2>Sources with alerts</h2>
+          <span class="panel-hint">Matched records</span>
         </header>
         <div class="entity-list" id="top-sources"></div>
       </article>
       <article class="panel">
         <header class="panel-head">
-          <h2>PS-26145 coverage</h2>
+          <h2>Detection categories</h2>
           <span class="panel-hint" id="coverage-hint"></span>
         </header>
         <div class="coverage" id="coverage"></div>
+        <p class="panel-note">Categories with recorded alerts. This is not a measure of detection coverage.</p>
+      </article>
+      <article class="panel">
+        <header class="panel-head"><h2>Visibility limits</h2></header>
+        <p class="panel-note">Only the received direction is visible. Delivery, server responses and application outcomes cannot be confirmed.</p>
+        <p class="panel-note">No alerts does not establish a clean network. Packet counts, last-packet time and kernel drops are shown when measurable; a live heartbeat does not prove the intended feed is complete.</p>
       </article>
     </aside>
   </section>
 
+  <section class="grid grid-charts">
+    <article class="panel">
+      <header class="panel-head">
+        <h2>Alert records over time</h2>
+        <span class="panel-hint" id="timeline-hint">severity per time bucket</span>
+      </header>
+      <div class="chart-box"><canvas id="timeline-chart" role="img" aria-label="Alert counts over time by severity"></canvas></div>
+    </article>
+    <article class="panel">
+      <header class="panel-head">
+        <h2>Leading detections</h2>
+        <span class="panel-hint" id="mix-hint">by threat class</span>
+      </header>
+      <div class="chart-box chart-box-ring"><canvas id="mix-chart" role="img" aria-label="Most frequent detection classes"></canvas></div>
+    </article>
+  </section>
+
   <footer class="footer">
-    <span>One-Way NIDS prototype · alerts are standardized JSONL · evidence shown verbatim, never post-processed</span>
+    <span>Diode Sentinel <span class="footer-divider">/</span> Receive-side network monitoring</span>
     <span id="footer-version"></span>
   </footer>
 </main>
@@ -115,13 +130,27 @@
     </header>
     <p class="detail-why" id="detail-why"></p>
     <dl class="detail-meta" id="detail-meta"></dl>
-    <h4 class="detail-sub">evidence</h4>
-    <pre class="detail-evidence" id="detail-evidence"></pre>
+    <h4 class="detail-sub">Observed measurements</h4>
+    <dl class="signal-facts" id="detail-facts"></dl>
+    <section id="detail-related-section" hidden>
+      <h4 class="detail-sub">Signals used by this correlation</h4>
+      <div id="detail-related"></div>
+    </section>
+    <section class="investigation-note"><h4 class="detail-sub">Interpretation limits</h4><p id="detail-caveat"></p></section>
+    <section class="investigation-note"><h4 class="detail-sub">Suggested verification</h4><p id="detail-next-step"></p></section>
+    <div class="evidence-export-row">
+      <button type="button" class="btn btn-sm btn-outline" id="export-alert">Download evidence JSON</button>
+      <span class="panel-hint" id="export-status">One selected alert · active filters recorded</span>
+    </div>
+    <details class="raw-evidence"><summary>Original detector evidence</summary>
+      <pre class="detail-evidence" id="detail-evidence"></pre>
+    </details>
   </div>
   <form method="dialog" class="modal-backdrop"><button>close</button></form>
 </dialog>
 
 <script src="/static/vendor/chart.umd.min.js"></script>
+<script src="/static/motion.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

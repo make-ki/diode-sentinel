@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "models": {
+    "encrypted_xgb": "models567/encrypted_xgb.json",
+    "scan_rf": "models567/scan_rf.joblib",
+    "scan_iforest": "models567/scan_iforest.joblib",
+    "exfil_xgb": "models567/exfil_xgb.json",
+    "exfil_iforest": "models567/exfil_iforest.joblib",
+    "sequence_cnn": "models567/sequence_cnn.npz"
+  },
+  "thresholds": {
+    "encrypted_xgb": 0.5,
+    "sequence_cnn": 0.5,
+    "scan_rf": 0.5,
+    "scan_iforest": 0.99,
+    "exfil_xgb": 0.5,
+    "exfil_iforest": 0.95
+  }
+}

@@ -1,0 +1,14 @@
+node_modules/
+out/
+public/music.mp3
+.media-cache/
+public/music.wav
+public/music-master.wav
+public/dashboard-reference.png
+public/captures/*.webm
+public/captures/pipeline.log
+First Light - naneki.mp4
+public/explainer-music.wav
+public/explainer-captures/*.webm
+public/explainer-captures/pipeline.log
+public/explainer-narration/sample.wav

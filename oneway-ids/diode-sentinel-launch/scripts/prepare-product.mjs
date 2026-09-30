@@ -1,0 +1,14 @@
+import {existsSync,readFileSync,writeFileSync} from 'node:fs';
+const root=process.cwd();
+const beats=JSON.parse(readFileSync('beats.json','utf8'));
+const frames=beats.cuts.map(x=>x.frame);
+const ids=['intro','live','evidence','sources','dns','encrypted','scan','exfil','passive','closing'];
+const timeline=ids.map((id,i)=>({id,start:frames[i],end:frames[i+1]}));
+writeFileSync('src/product-timeline.generated.ts','export const timeline = '+JSON.stringify(timeline,null,2)+' as const;\n');
+const capture=existsSync('public/captures/capture-manifest.json')?JSON.parse(readFileSync('public/captures/capture-manifest.json','utf8')):{clips:{},viewport:{width:1600,height:1000}};
+writeFileSync('src/capture.generated.ts','export const capture = '+JSON.stringify(capture,null,2)+' as const;\n');
+const music=['music-master.wav','music.mp3'].find(file=>existsSync(`public/${file}`))??null;
+const voice=existsSync('narration.json')?JSON.parse(readFileSync('narration.json','utf8')):[];
+const hasVoice=voice.length>0&&voice.every(segment=>existsSync(`public/${segment.file}`));
+writeFileSync('src/product-assets.generated.ts',`export const productAssets={music:${JSON.stringify(music)},narration:${hasVoice}} as const;\n`);
+console.log('Prepared product timeline, capture provenance and audio manifest.');

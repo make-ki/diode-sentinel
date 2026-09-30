@@ -22,7 +22,61 @@ win.
 
 ---
 
-## 2. The eight traps in the statement (ranked by how many teams will hit them)
+## 2. The observability contract — this is the actual contribution
+
+Every team will build detectors. The finding that no other submission will
+have is a **contract**: we enumerated every feature PS-26145 asks for, and for
+each one stated whether it can exist on a one-way feed at all.
+
+The artifact is `observability.py` — 21 rows, each carrying the feature, the PS
+class, a status, and the reason it cannot be seen. The statuses:
+
+| Status | Count | Meaning |
+|---|---|---|
+| `OBSERVABLE` | **15** | computed from the feed; row cites the consuming function |
+| `IMPOSSIBLE` | **5** | information-theoretically absent; row states the physical reason |
+| `SUBSTITUTED` | **1** | the requested signal is impossible, so a one-way proxy replaces it |
+
+**The headline, and it is a finding about the problem statement itself:**
+five of the features the PS *requests* are unsatisfiable under the PS's *own*
+constraint (a):
+
+| PS class | Requested feature | Why it cannot exist one-way |
+|---|---|---|
+| (d) | **JA3S / JA4S server fingerprint** | computed from the ServerHello, sent by the responder — the wrong direction |
+| (d) | **negotiated cipher / server certificate** | both chosen by the responder after the handshake, off the observable path |
+| (b) | **round-trip time** | needs the response; one-way latency is unmeasurable without a return path |
+| (c) | **NXDOMAIN ratio** | RCODE lives in the DNS response header, which the diode never delivers |
+| (f) | **outbound-to-inbound byte ratio** | the inbound half is never seen, so the ratio has no denominator |
+
+**Say this line:** *"Five of the features the problem statement asks us to
+implement are made impossible by the problem statement's own first constraint.
+That is not our limitation — it is the geometry of a diode. A detector that
+reads one anyway does not fail loudly, it silently produces garbage, so we
+made the contract enforceable rather than descriptive."*
+
+**The gate is real code, not a doc table.** `test_contract.py` scans the
+detector sources for forbidden bidirectional tokens — `ja3s`, `server_hello`,
+`rcode`, `nxdomain`, `ttl`, `rtt`, `bytes_in`, `in_out_ratio` — and **fails the
+build** on a hit. It was verified to fail on an injected `rcode` read and to
+pass once removed. So the contract cannot drift out of sync with the
+implementation: if someone reaches for a response-side field, CI catches it.
+
+The one `SUBSTITUTED` row is worth its own sentence: UDP reflection is defined
+by *response* size, so the sensor reports two observable burst proxies instead:
+one source fanning out across UDP endpoints, or many visible sources converging
+on one UDP endpoint. They use client-side packet rates and endpoint counts;
+neither claims a response, reflection, or amplification. Their current
+thresholds are documented prototype settings, not production-calibrated rates.
+
+This is also the honest answer to "what is novel here?" It is not a Zeek config
+trick and not a model. It is a proof that a named subset of the requirement
+space is empty, plus the machinery that keeps the codebase on the right side of
+that line.
+
+---
+
+## 3. The eight traps in the statement (ranked by how many teams will hit them)
 
 ### Trap 1 — class (f) asks for a ratio that cannot exist in one direction
 > *"(f) Data exfiltration: Asymmetric flow-volume anomalies and **unusual
@@ -86,10 +140,12 @@ that server-side fields are invisible.
 **And the bonus nobody expects:** the one thing that *is* recoverable is QUIC.
 QUIC **Initial** packets are decryptable with **no secret at all** — RFC 9001
 derives the keys from a public version salt plus the connection ID. So we can
-pull a real JA4 out of QUIC traffic on a one-way feed. We proved it rather than
-asserted it: the JA4 extracted from a decrypted QUIC Initial is
-**byte-identical** to the direct TLS parse (`test_quic.py`), and a
-GCM-tampered packet is rejected rather than mis-fingerprinted.
+recover the ClientHello metadata from QUIC traffic on a one-way feed. We proved
+the implementation against the independent client-key and Initial-packet
+vectors in [RFC 9001 Appendix A.1/A.2](https://www.rfc-editor.org/rfc/rfc9001.html#appendix-A.2),
+including the expected parsed metadata (`tests/test_quic.py`). QUIC JA4 uses a
+`q` transport prefix while TLS uses `t`, so the full strings are not expected
+to match. Tampered packets and unsupported versions are rejected.
 
 Prep the follow-up: *"isn't that decryption?"* → No payload is decrypted. The
 Initial packet is decryptable **by protocol design** with public inputs; no
@@ -161,24 +217,25 @@ we found a bug where our own accounting was lying."*
 
 ---
 
-### Trap 7 — "clean chain of custody for forensic use" is a real requirement
-Forensic means **reproducible** and **accurate**. Two concrete things:
+### Trap 7 — forensic chain of custody needs more than replay reproducibility
+We can demonstrate deterministic offline analysis and matching dpkt/Scapy
+alert records on the current archived capture. The historical fixture files
+remain preserved at 46/68 while that capture now emits 45/67: one
+`tls_known_malware` record from invalid synthetic QUIC was removed, and fixture
+migration is pending. This is a known regression-gate mismatch, not a passing
+byte-for-byte reference claim.
 
-- **Reproducible:** offline replay and `--ml` reproduce the original alert
-  files **byte-for-byte** against committed regression fixtures, and backend
-  parity is asserted (`--parity`: dpkt vs scapy produce **identical** alert
-  distributions). A replay today matches a replay from last week.
-- **Accurate:** we found our own evidence-integrity bug — live alert
-  timestamps rendered the millisecond field **one second off**, because the
-  anchor's fractional part and `t % 1` disagreed. Completely invisible offline
-  (whole-number anchor), fatal live. Fixing it mattered because **the timestamp
-  is evidence**.
+That replay evidence does **not** establish a forensic chain of custody. Alert
+records do not yet identify packet ranges, capture identity, model/config
+hashes, or evidence ancestry, and there is no trusted timestamp or authenticity
+mechanism. A corrected live timestamp helps event interpretation but cannot
+prove capture provenance or legal custody.
 
 ---
 
 ### Trap 8 — the statement names the dataset that should scare you
 > Dataset link: *"attack traffic from hping3 (SYN/UDP floods), **Slowloris**,
-> **dnscat2/iodine** (DNS tunnelling), and DGA samples…"*  (unchanged)
+> **dnscat2/iodine** (DNS tunnelling), and DGA samples…"*
 > and class (c): *"Entropy/n-gram analysis of DNS query names, plus
 > query-length and **record-type anomalies**."*
 
@@ -187,20 +244,32 @@ DGA check will not catch them, because the labels can be short or even
 human-looking — the anomaly is the **record type and query rate**, not the
 entropy.
 
-Our DNS detector covers the lexical half (entropy, label length, vowel/digit
-profile, streak) **and now has a learned Tier-2 model on top of it** — a numpy
+Our DNS detector now covers **both halves of that clause**. The lexical half
+(entropy, label length, vowel/digit profile, streak); and the record-type half,
+which we added precisely because the statement asked for it and it is one-way
+observable by construction — the client writes the qtype into the query, so no
+response is needed. `_tunnel_check` fires on **record-type anomaly** (a TXT/NULL
+query from a host that has only ever sent A/AAAA), **query length**, and **max
+label length**. On the shipped capture it emits 4 `dns_tunneling` alerts at up
+to 0.97 confidence on the host running a base32-chunked TXT tunnel, and fusion
+correlates those with the exfil signal into a single `confirmed_exfiltration`
+verdict. The query itself is the exfiltrated data; we never see the response and
+never need to.
+
+The lexical half also has a learned Tier-2 model on top of it — a numpy
 1D character CNN, trained with a family-held-out split, that reaches **1.000
 recall at 0.001 FP on an unseen DGA family** where the entropy rules get 0.473
 at 0.003 FP. It also catches a real query on the *shipped demo capture* that
 the rules called benign (`8yuxczaumapqpp`: entropy 3.182 against a 3.3 gate).
 
-What is still missing is `qtype`: we **do not parse record-type anomalies**,
-which is the other half of the statement's clause and the half that matters
-for dnscat2/iodine (they tunnel over TXT/NULL). See §5 for the honest answer.
+**The honest boundary:** the CNN reads the *label*, not the record type, so it
+does not cover the tunnelling half — that is what the qtype check is for. And
+NXDOMAIN correlation remains impossible (see the contract, §2), which is the
+usual crutch a DGA detector leans on.
 
 ---
 
-## 3. Two traps specific to class (a) — be ready before a judge notices
+## 4. Two traps specific to class (a) — be ready before a judge notices
 
 > *"(a) Volumetric / protocol DDoS: **SYN floods, UDP reflection/amplification,
 > and spoofed-source floods** identified from flow-level rate and **source-IP
@@ -209,10 +278,12 @@ for dnscat2/iodine (they tunnel over TXT/NULL). See §5 for the honest answer.
 **(i) There is no `ddos_syn_flood` in the shipped alert file — and that is
 correct.** The spoofed-source branch (distinct source IPs ≥ 500) is checked
 first and is strictly *more specific*, so a spoofed SYN flood is reported
-**once** as `ddos_volumetric_spoofed`, with `syn_ratio: 0.937` right there in
-the evidence (both class-(a) alerts carry `distinct_src_ips` 1535 / 1495 and
-`syn_ratio` 0.935 / 0.937). Say that out loud *before* someone greps for
-`syn_flood` and finds nothing.
+**once** as `ddos_volumetric_spoofed`, with the `syn_ratio` right there in the
+evidence (on the shipped capture, ~0.93 for both class-(a) alerts, each also
+carrying `distinct_src_ips` in the ~1,500 range — the exact counts shift with
+the generator's spoofed-source draw, so read them off the alert, don't memorise
+them). Say that out loud *before* someone greps for `syn_flood` and finds
+nothing.
 
 **(ii) "Is entropy actually used in the decision?"** Our decision variable is
 **distinct-source cardinality**; Shannon entropy of the source distribution is
@@ -220,59 +291,120 @@ computed and carried on the alert. They are the same information — entropy is
 bounded by `log2(distinct)` — and cardinality gives a threshold that does not
 drift with window occupancy. State it plainly; it is a defence, not a dodge.
 
-**(iii) UDP reflection/amplification is not separately modelled.** It is a
-volumetric flood and our rate + entropy path catches the *symptom*, but we do
-not characterise the reflection signature (many small queries to one service,
-large replies coming back). Own this in §5.
+**(iii) UDP burst evidence is now separate from TCP flood evidence.**
+`udp_burst_fanout` reports one source with at least 100 datagrams and 20
+destination endpoints in a window; `udp_target_burst` reports at least 1,000
+datagrams from 50 sources to one endpoint. Rates, counts and trigger
+thresholds travel with the alert. These prototype gates are not calibrated to
+a production link. The return-side response size required to identify
+reflection or amplification remains unobservable, so the detector does not
+claim either. Details: `docs/udp-signals.md`.
 
 ---
 
-## 4. Numbers to quote — and the two you must not oversell
+## 5. Numbers to quote — and the two you must not oversell
 
 ### The rate the statement demands
 > *"(d) Defined throughput target: Solutions must **state and demonstrate** the
 > traffic rate they were tested against (e.g., flows/sec or **Mbps
 > sustained**)."*
 
-This capture: 12,571 packets, 6,691,969 bytes, **599.6 s**, mean packet
-**532.3 bytes**, **4,213 distinct flows**, of which 4,449 are SYN-only, 662 DNS,
-9,455 TLS.
+This capture: **14,049 packets, 8,622,217 bytes, 598.8 s**, mean packet
+**613.7 bytes**, **5,225 distinct flows**, of which 4,617 are SYN-only, 720 DNS,
+7,107 TLS.
 
 | Mode | Packets/s | Equivalent sustained rate | Flows/s |
 |---|---|---|---|
-| Rules only (dpkt) | **44,269** | **≈ 188 Mbps** | 18,077 |
-| With ML tier (LightGBM) | **24,687** | **≈ 105 Mbps** | 10,081 |
+| Rules only (dpkt) | **≈48,600–50,400** | **≈ 240 Mbps** | ≈19,200–20,300 |
+| With ML tier (LightGBM) | **≈24,000–31,000** | **≈ 120–155 Mbps** | ≈9,700–11,800 |
 
-**Say it exactly like this:** *"44,269 packets per second ≈ 188 Mbps sustained,
-single CPU core, pure Python, no C extension and no GPU. With the ML tier
-scoring every closed flow, 24,687 packets/s ≈ 105 Mbps."*
+Measured over repeated runs on one CPU core, pure Python, no C extension and no
+GPU. The rules tier is tight across runs; the ML tier varies more with model
+warm-up and cache state, so it is quoted as a range — a single false-precision
+number would not be reproducible. The Mbps figures use this capture's mean
+packet size (613.7 B).
 
-The Mbps figure is the mean packet size of *this* capture (532 B) times the
+**Say it exactly like this:** *"About 50,000 packets per second — roughly 240
+Mbps sustained — on a single CPU core, in pure Python with no C extension and
+no GPU. With the ML tier scoring every closed flow it drops to roughly 24 to 31
+thousand packets per second."*
+
+The Mbps figure is the mean packet size of *this* capture (613.7 B) times the
 measured packet rate. For a SYN flood the binding number is **packets/s**, not
 Mbps — small packets are cheaper per byte, so `pkt/s` is the honest headline
 and Mbps is the translation the statement asks for.
 
-### ⚠ Do not lead with "2,113× real-time"
-It is arithmetically true (600 s of capture in 0.284 s) but it is **the same
-single measurement restated** — and it is large largely because the synthetic
-capture is **sparse**: it carries only **21 packets/s ≈ 0.09 Mbps**. Lead with
+### ⚠ Do not lead with the real-time factor
+It is arithmetically true (600 s of capture processed in well under a second,
+so roughly 2,000× real-time — the exact digit varies with run-to-run cache
+state, so quote "~2,000×", not a precise figure) but it is **the same single
+measurement restated** — and it is large largely because the synthetic
+capture is **sparse**: it carries only **23 packets/s ≈ 0.11 Mbps**. Lead with
 `pkt/s` and `Mbps` as *capability*; mention the real-time factor only as a
 repeatability statement, and volunteer the reason it looks big. A judge who
 works that out after you have waved it around will trust the rest of your
 numbers less.
 
 ### Other numbers, with their mandatory qualifiers
-- **6/6** PS threat classes covered, **9 distinct threat classes** emitted,
-  33 alerts on the default capture.
-- **0 true false positives** — *always* add the qualifier: *after
-  operator-curated allowlisting, which suppressed 20 benign periodic events.*
-  The `run_stats.json` sidecar exposes that 20 on the dashboard; if you say
-  "zero FPs" without the qualifier, someone will find the 20 and call it
-  cherry-picking.
-- **ML evaluation:** temporal split (t < 420 s train / t ≥ 420 s test — no
-  temporal leakage). Benign recall 100%, 0 FP; malicious recall 85.7%, with the
-  10 misses documented as **generator label noise** (the model is right, the
-  generator-derived labels are wrong on benign DNS from an attack host).
+- **6/6** PS threat classes covered, **12 distinct threat classes** emitted by
+  the rules tier (13 including the ML tier's `ml_flow_suspicious`),
+  46/68 are the historical recorded-demo counts. The current archived
+  14,049-packet capture emits 45/67; the sole removed rule alert is the invalid
+  synthetic-QUIC-derived `tls_known_malware` record. The frozen refs still say
+  46/68 pending reviewed migration. The other records are unchanged.
+- **False positives — the measured answer, not the headline you want.** On the
+  historical recorded capture the rules tier emitted **46 alerts, every one
+  on a host the generator designates as an attacker**. The current archive has
+  45 after the QUIC fixture correction, with the other records unchanged. But we built a
+  deliberate FP-pressure variant (`MESSY=1`) that injects *benign* patterns a
+  real network has: first-time cloud-backup uploads, low-jitter IoT telemetry,
+  CDN-style long subdomain labels. On it the rules tier emits **one true
+  critical FP — `data_exfiltration` at 0.95 on the benign backup host** —
+  because "large sustained upload to a never-before-seen destination" is
+  *exactly what a backup is*. Own that on stage; it is the honest cost of a
+  one-way exfil detector that cannot ask "was that authorised?"
+  With the explicit synthetic operator registry, that backup alert remains
+  visible at **medium / 0.60**, with `authorised_destination: true`. This is
+  triage of an approved transfer, not improved detection accuracy. The default
+  registry is empty.
+  Do **not** say "zero false positives" without the FP-pressure qualifier.
+  Also do not lean on the allowlist count as a result: `ALLOWLIST` in
+  `config.py` is operator-curated against the same three telemetry IPs the
+  generator emits, so "zero FPs after allowlisting" is partly circular.
+- **Replay-training experiment (29 September):** on the same synthetic
+  evaluation rows at t >= 420 s, shipped vs experiment benign false positives
+  are **35/541 vs 2/541**, with **60/75** malicious flows detected by both at
+  threshold 0.95. The rows are held out of the experiment; the shipped model's
+  training provenance does not establish that it never saw them. The backup
+  burst occurs before the split. This is not external validation and the
+  shipped model was not replaced. See `docs/ml-replay-evaluation.json`.
+- **⚠ Do not headline `--models-567` as six working models.** Its own
+  `models567/eval.json` is the honest record. **Four** of the six —
+  `encrypted_xgb`, `sequence_cnn`, `scan_rf`, `exfil_xgb` — reach recall
+  **1.000** at **0** benign FP on the temporal holdout (t ≥ 390 s). The other
+  two are the IsolationForest pair, and they are a *measured negative result*,
+  not a tuning issue: they do detect every malicious row, but only at
+  thresholds where they also fire on 2–6% of benign windows; tighten past that
+  and they go blind. **No operating point is both sensitive and quiet**, so the
+  threshold selector ships the quiet point and reports recall 0.000 rather than
+  hiding a noisy one. Say "four of six, and the two that fail are the
+  unsupervised ones — here is the sweep that shows no good operating point
+  exists." Serving now retains their raw, uncalibrated anomaly scores only
+  on a supervised alert corroborated by a deterministic rule in the same window;
+  they create no standalone alerts.
+  Also worth saying, because it is the more interesting half of the story: the
+  `scan_rf` and `exfil_xgb` models used to read 0.000 too, and that was **not**
+  a model failure — the temporal split placed every malicious scan and exfil
+  row in training, so the holdout had nothing to score. Once the generator
+  emitted attack bursts on both sides of the split, the same architectures
+  scored perfectly. "Unmeasurable" and "broken" are different claims, and the
+  old table conflated them.
+- **⚠ The ML tier breaks under FP pressure.** On the `MESSY` capture the
+  supervised flow model emits **79 `ml_flow_suspicious` alerts, 59 on designated benign hosts** (IoT telemetry, backup, ordinary web
+  browsing) — benign traffic shapes absent from its training capture. This is
+  the measured reason the rules tier stays primary and the ML tier is
+  quorum-gated. If a judge asks "does the ML model generalise?", this is the
+  answer, and it is not a comforting one.
 - **The tier-boundary lesson:** per-flow ML on bare SYN packets produced
   **3,021 alerts**; excluding bare SYNs at the tier boundary and letting the
   aggregate detectors own them brought it to **20**, all on true attack hosts.
@@ -319,33 +451,102 @@ numbers less.
   separated per-string (0.226 / 0.257) and no CNN threshold fixes it, and
   mixed-host precision at 5% DGA prevalence is 0.171 — the layered policy is
   what keeps the benign case quiet, not the CNN alone.
-- **Tests:** 295 checks across seven suites, all green — `test_tls_meta.py` 42,
-  `test_fusion.py` 15, `test_quic.py` 10, `test_live.py` 64,
-  `test_dashboard.py` 82, `test_dga_cnn.py` 51 (including a finite-difference
-  gradient check on the hand-written backprop), `test_bench_dga.py` 31.
-  (PLAN.md still contains the
-  intermediate counts from mid-development, e.g. "48 unit tests"; those are
-  dated log entries, not current totals. Don't read a total off PLAN.md on
-  stage.)
+- **Tests:** The plain `unittest` scripts cover detector behavior, packet
+  parsing, sensor lifecycle, dashboard presentation and replay. Run
+  `source .env-ml && for t in tests/test_*.py; do .venv/bin/python "$t" || break; done`.
+  The demo lifecycle smoke test is opt-in with
+  `DIODESENTINEL_DEMO_SMOKE=1`; it checks that alerts appear during replay and
+  Ctrl-C removes the child processes and temporary output.
+
+### Real-dataset validation — IoT-23 (the answer to "isn't this all self-play?")
+
+The synthetic capture is our own generator with our own labels, and Gap 3 says
+so plainly. So we validated against a real public dataset: **IoT-23** (CTU
+Stratosphere Laboratory, 2020, CC-BY-4.0) — real infected IoT devices, real
+malware, with Zeek `conn.log` labels as ground truth. Nothing was retuned; the
+shipped detector ran on each scenario as committed.
+
+Scoring is **per host, not per flow**, and the reason matters: Mirai worm-spread
+makes one infected host emit tens of thousands of Zeek-"Benign" scan flows, so
+per-flow precision looks like 0.017 when the detector is actually right. A host
+is the unit an analyst responds to.
+
+| Scenario | Malware | LAN infected | Alerts | Host recall | Host precision |
+|---|---|---|---|---|---|
+| Capture-8-1 | Hakai | 1 | 206 | **1.000** | **1.000** |
+| Capture-1-1 | HideNSeek | 1 | 38,401 | **1.000** (flagged the infected host, 0 clean-host FPs) | — |
+| Capture-42-1 | Trojan | 1 | 0 | **0.000 — a total miss** | — |
+| Honeypot-4-1 | *benign* Philips HUE | 0 | 8 | — | **0.000 — real FP** |
+
+**What generalizes, and what does not:**
+
+- **The C2-beaconing detector generalises to real malware with no retuning** —
+  perfect host recall on Hakai and HideNSeek, two different families on two
+  different captures. Periodicity is periodicity regardless of the botnet.
+- **A real, honest miss.** Capture-42-1 has six malicious C&C-FileDownload
+  flows and we raised **zero** alerts. The Trojan's traffic did not trip any
+  one-way signal we currently compute. Say this before anyone finds it.
+- **A real, structural false positive.** The benign Philips HUE smart bulb
+  phoning home to Google (216.239.35.x) and AWS (52.209/52.215) fires as **C2
+  beaconing** — low-jitter periodic traffic to a small set of cloud
+  destinations is *exactly* what beaconing looks like one-way. This is not a
+  tuning bug; it is a fundamental confound for a one-way egress monitor, and it
+  is the same reason the `ALLOWLIST` exists. Every one-way IDS has to answer
+  for this, and most do not notice.
+- The 38,401 alerts on Capture-1-1 include ~37.7k `recon_*` flows from the
+  single infected host — a **scoring artifact** of worm-spread, not detector
+  error. Per-host scoring is what keeps that readable.
+
+**This is the strongest unclaimed result in the repo and it belongs in the
+deck.** Two real malware families detected with no retuning, one honest miss,
+one structural FP — all on public, citable data. Cite it as: Parmisano, Garcia,
+Erquiaga, "IoT-23 dataset", Stratosphere Lab, 2020, CC-BY-4.0.
+
+### Operator view — paced synthetic replay
+
+`./demo.sh` creates a fresh synthetic capture in a temporary directory,
+starts the dashboard, then streams the capture through the normal FIFO live
+path at 10x by default. The alert queue updates during replay; after EOF, the
+completed view remains available until Ctrl-C. The three orange dashboard
+screens in the deck were captured in one active replay: first alert in the
+queue, measured alert detail open, then the source filter applied. They show
+generated traffic and a simulated local JA4 indicator, not external threat
+intelligence or scenario ground truth.
+
+The sensor strip reports lifecycle, mode, source, heartbeat, packet receipt
+time, and source counters. A pcap stream cannot measure kernel capture drops,
+so those stay unknown. Live health heartbeats continue while the feed is idle;
+completion, stop, stale reporting, and source failure have distinct states.
+
+The analyst path is: open the overview, inspect measured facts and their
+limits, then pivot to the source and compare its observed schedule. Clear the
+source filter to restore full scope. Association with a source is a triage aid,
+not a finding of compromise.
+
+The historical references contain 46 rules-only and 68 ML records; the current
+archived capture emits 45/67 and differs by the one invalid synthetic-QUIC
+record noted above. Fixture migration remains pending, so the historical
+byte-identity gate does not pass. Those alerts include correlations that reuse
+detector evidence and are not unique incidents.
 
 ---
 
-## 5. Gaps — rehearse these five answers tonight
+## 6. Gaps — rehearse these five answers tonight
 
 Own them before a judge finds them. Volunteering a limitation reads as rigour;
 getting caught reads as an overclaim.
 
 | # | Question they will ask | Your answer |
 |---|---|---|
-| 1 | *"Where is your record-type anomaly for DNS tunnelling? The statement names dnscat2/iodine."* | Lexical half is implemented and tested (entropy, label length, vowel/digit profile, streak) **plus a learned Tier-2 character CNN** (1.000 vs 0.473 recall on an unseen DGA family). Record-type is **not** yet parsed. dnscat2/iodine tunnel over TXT/NULL, so that anomaly is `qtype` + query rate, not entropy — and note the CNN does not cover it either, because it reads the label, not the record type. `qtype` is visible in the query, one-way, with no response needed: it is a ~20-line change in the same code path. Say the size of the change; that proves you scoped it. |
-| 2 | *"UDP reflection/amplification? Slowloris?"* | Neither is separately modelled. Reflection/amplification is caught as a volumetric flood symptom by rate + entropy, not by its signature. Slowloris appears in the statement's *dataset suggestions*, not in the scored threat list (a)–(f); one-way it would be a long-lived half-open-flow pattern, which our flow-assembler could carry but we have not built. |
-| 3 | *"Your own generator, your own labels — isn't that circular?"* | Partly, and we say so. Three mitigations: temporal splits mean the model never sees the future; the 10 "misses" are generator label noise we publish rather than tune away; and the DGA detector has now been scored **as shipped** on an external, citable corpus — andrewaeva/DGA, 694k real DGA domains / 1M benign, nothing refit (`BENCH-DGA.md`) — where the quorum constant was measured rather than guessed. The flow-feature pipeline takes real datasets through the same path — CTU-13, CIC-IDS, CESNET-TLS22 remain the named next step. |
-| 4 | *"Is the live capture actually tested against a real interface?"* | **No — and we say that first.** The development container has `CapBnd: 0`, so no capability can be acquired there at all, not even by root or via a file-capped helper. What *is* verified end-to-end: a real FIFO written in chunks by a separate process reproduces the offline alert stream **byte-for-byte**, plus drop accounting, sampling, interface validation and both privilege-failure paths. The only unexercised piece is the `AF_PACKET` socket setup itself. |
-| 5 | *"188 Mbps is a microbenchmark extrapolated from a 0.09 Mbps capture."* | Fair. Dissection is O(1) per packet so pkt/s generalises, and the **1-in-N sampling guard exists precisely because the pure-Python ceiling is ~45k pkt/s single core** — above it we degrade coverage deterministically and **report the loss** rather than hide it. Note the PS says the ingest is *simulated*; the ceiling claim is bounded and stated. |
+| 1 | *"Where is your record-type anomaly for DNS tunnelling? The statement names dnscat2/iodine."* | **Implemented.** Both halves of class (c) are covered: the lexical half (entropy, label length, vowel/digit profile, streak, plus a learned character CNN — 1.000 vs 0.473 recall on an unseen DGA family) and the record-type half (`qtype` anomaly for TXT/NULL, query length, max label length). `qtype` is parsed in `pcap_reader.py` and `live_source.py` and threaded through the packet tuple; `_tunnel_check` fires on it, and 4 `dns_tunneling` alerts at up to 0.97 fire on the shipped capture. All three signals are written by the client into the query, so all three are one-way observable with no response — unlike RCODE/NXDOMAIN, which the observability contract marks IMPOSSIBLE and the detector never reads. What is *not* covered: the CNN reads the label, not the record type, so tunnelling detection is rule-based only; and we have no dnscat2/iodine capture to test against, only a synthetic base32 TXT tunnel built to look like one. |
+| 2 | *"UDP reflection/amplification? Slowloris?"* | UDP now has two explicit one-way burst proxies: source fan-out and many sources converging on one endpoint, with rate and cardinality evidence. Their thresholds are prototype settings that still need representative benign and attack capture calibration. Return-side response size is absent, so we cannot identify reflection or amplification. Slowloris appears in the statement's *dataset suggestions*, not the scored threat classes (a)–(f); a one-way long-lived-flow proxy remains future work. |
+| 3 | *"Your own generator, your own labels — isn't that circular?"* | Partly, and we say so. Four mitigations, in increasing strength: temporal splits mean the model never sees the future; the 10 "misses" are generator label noise we publish rather than tune away; the DGA detector is scored **as shipped** on an external, citable corpus — andrewaeva/DGA, 694k real DGA domains / 1M benign, nothing refit (`BENCH-DGA.md`) — where the quorum constant was measured rather than guessed; and **the whole sensor has now run against real malware on IoT-23** (CTU Stratosphere, CC-BY) with Zeek ground truth — perfect host recall on Hakai and HideNSeek, an honest total miss on a Trojan, and one structural cloud-telemetry FP. See §5. That is the answer that survives scrutiny: not "we will validate on real data", but "here is where we already did, including the misses." |
+| 4 | *"Is the live capture actually tested against a real interface?"* | **No — and we say that first.** The development container has `CapBnd: 0`; AF_PACKET socket setup itself remains unverified. The shipped demo instead starts the dashboard, streams a freshly generated synthetic capture through the same unprivileged FIFO live path, and shows alerts during replay. It leaves the completed view open. The sensor panel reports heartbeat, freshness and measured packet counts; pcap replay correctly reports kernel drops as unknown. A test-interface run with CAP_NET_RAW remains required to validate the physical capture socket. |
+| 5 | *"240 Mbps is a microbenchmark extrapolated from a 0.11 Mbps capture."* | Fair. Dissection is O(1) per packet so pkt/s generalises, and the **1-in-N sampling guard exists precisely because the pure-Python ceiling is ~50k pkt/s single core** — above it we degrade coverage deterministically and **report the loss** rather than hide it. Note the PS says the ingest is *simulated*; the ceiling claim is bounded and stated. |
 
 ---
 
-## 6. Things in the repo that exist only because of the constraint
+## 7. Things in the repo that exist only because of the constraint
 
 Use these as "we went further than the brief" — each is a direct consequence of
 one-way, not a generic feature.
@@ -380,7 +581,7 @@ one-way, not a generic feature.
 
 ---
 
-## 7. Fifty-second opening script
+## 8. Fifty-second opening script
 
 > "This is PS-26145 — threat detection in unidirectional IP traffic, from
 > NTRO. The statement is not really about threat detection; it is about
@@ -393,36 +594,47 @@ one-way, not a generic feature.
 > turns out to break most of the standard playbook, and those are the parts we
 > want to show you.
 >
-> **First:** the statement asks us for outbound-to-inbound byte ratios for
-> exfiltration. One-way, that quantity does not exist — you only ever see one
-> direction. We replaced it with bytes to destinations the host has never
-> spoken to, measured against that host's own baseline, with an age guard.
+> **First, and this is our actual contribution:** we enumerated every feature
+> the statement asks for and asked which of them can exist on a one-way feed at
+> all. **Five of them cannot** — JA3S, the negotiated cipher and server
+> certificate, round-trip time, the NXDOMAIN ratio, and the
+> outbound-to-inbound byte ratio. Five of the problem statement's own requested
+> features are made impossible by the problem statement's own first
+> constraint. That is a finding about the problem, not a limitation of our
+> code, and we enforce it: a CI test fails the build if any detector reaches
+> for a response-side field.
 >
-> **Second:** it offers JA3S as a TLS fingerprint. JA3S is computed from the
-> server's hello — the wrong direction. So we use JA4, and we still get it out
-> of QUIC, because QUIC Initial keys are public by design.
+> **Second:** where a requested feature is impossible, we built the closest
+> observable substitute and put its arithmetic on the alert. Exfiltration
+> becomes bytes to a destination the host has never spoken to, against that
+> host's own baseline. JA3S becomes JA4 — and we still extract it from QUIC,
+> because QUIC Initial keys are public by design.
 >
 > **Third:** it asks for streaming with bounded latency, not an end-of-run
 > report. We had to make the **clock** close our detection windows rather than
 > the traffic — otherwise a flood followed by silence sits unscored forever,
 > which is unbounded latency on a sensor whose only claim is bounded latency.
 >
-> We covered all six threat classes. We measured 44,000 packets per second on a
-> single core in pure Python — about 188 megabits sustained — and we have a
-> dashboard that shows the alert stream with the evidence behind every verdict.
-> And where we could not do what the statement asked, we can tell you exactly
+> We covered all six threat classes. We measured about 50,000 packets per
+> second on a single core in pure Python — roughly 240 megabits sustained —
+> and we validated
+> against real malware on the IoT-23 public dataset: two families detected with
+> no retuning, one honest miss, one false positive we can explain. And where we
+> could not do what the statement asked, we can tell you exactly
 > why, and what we did instead."
 
 Then go straight to the dashboard and the four claims above.
 
 ---
 
-## 8. If you only remember three sentences
+## 9. If you only remember three sentences
 
-1. **"The statement's own feature — outbound-to-inbound byte ratio — is
-   unmeasurable one-way; here is what we used instead, and the arithmetic is on
-   every alert."**
+1. **"Five of the features the problem statement requests are impossible under
+   its own first constraint — we enumerated them, substituted one-way signals,
+   and made the constraint enforceable in CI so the code cannot silently
+   reach for a response that never arrives."**
 2. **"The clock closes our windows, not the traffic — that is the difference
    between bounded latency and an end-of-run report."**
-3. **"A one-way feed cannot audit itself, so we audit ours — including a bug we
-   found where our own drop-accounting was lying."**
+3. **"We ran it against real malware on IoT-23, not just our own generator:
+   two families detected with no retuning, one honest miss, and one false
+   positive that is structural to one-way monitoring rather than a bug."**

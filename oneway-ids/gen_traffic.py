@@ -21,8 +21,8 @@ Contents (10 min sim time, ~13k packets):
 import random
 from scapy.all import Ether, IP, TCP, UDP, DNS, DNSQR, Raw, wrpcap
 
-from config import SIM_START, DURATION, PCAP_PATH, BASELINE_SECONDS
-from hello_profiles import browser_hello, updater_hello, malware_hello
+from core.config import SIM_START, DURATION, PCAP_PATH, BASELINE_SECONDS
+from core.hello_profiles import browser_hello, updater_hello, malware_hello
 
 random.seed(42)
 
@@ -50,11 +50,65 @@ def _spoofed_ip():
                             random.randint(0, 255), random.randint(1, 254))
 
 
+_TCP_SEQ = {}
+_TCP_ACK = {}
+_TCP_CONN_FOR = {}
+_TCP_NEXT_CONN = 0
+
+
 def _tcp(t, src, dst, sport, dport, size, flags, payload=None):
     if payload is None:
         payload = b"\x00" * max(0, size - 54)   # Eth(14)+IP(20)+TCP(20)
+    # A SYN must never carry a payload: real TCP stacks do not do this and
+    # it corrupts one-way analysis (Zeek logs SYN_with_data and the stream
+    # reassembler then misaligns, hiding the ClientHello from the SSL analyzer).
+    if flags == "S":
+        payload = b""
+    # Sequence numbers must advance by payload length, or every segment
+    # appears to occupy the same sequence space and a reassembler treats
+    # later segments as retransmissions/overlaps that clobber the ClientHello.
+    # A SYN consumes one sequence number itself, so the first data byte of a
+    # connection is at ISN + 1. Data must also carry a non-zero ACK once the
+    # handshake has progressed, or Zeek classifies the segment as
+    # data_before_established and will not hand it to the SSL analyzer.
+    # A real stack also picks a random ISN: leaving it at 0 makes Zeek compute
+    # the first data byte's relative sequence as 0, i.e. the SYN's own number.
+    #
+    # The connection id includes a monotonic counter, not just the 4-tuple:
+    # _sport() draws from a 20k range, so source ports collide across the run
+    # and a reused (src,dst,sport,dport) would otherwise inherit the previous
+    # flow's sequence state and replay a wrong ISN.
+    global _TCP_NEXT_CONN
+    key = _TCP_NEXT_CONN if flags == "S" else _TCP_CONN_FOR.get((src, dst, sport, dport), -1)
+    if flags == "S":
+        _TCP_NEXT_CONN += 1
+        key = _TCP_NEXT_CONN
+        _TCP_CONN_FOR[(src, dst, sport, dport)] = key
+        # A SYN occupies its own sequence number, so the first data byte of the
+        # connection is ISN + 1. Emitting data at the ISN itself makes Zeek
+        # compute a relative sequence of 0, i.e. the SYN's sequence number,
+        # and it classifies the segment as data_before_established. Record the
+        # ISN as the value the SYN emits, then advance the counter so the
+        # following data segment reads ISN + 1.
+        isn = random.randrange(1 << 16, 1 << 31)
+        _TCP_SEQ[key] = isn + 1
+        _TCP_ACK[key] = 0
+        seq, ack = isn, 0
+    else:
+        # NOTE: seq/ack are read AFTER the SYN advanced the counter, otherwise
+        # the first data segment inherits the SYN's sequence number verbatim.
+        seq = _TCP_SEQ.get(key, 1)
+        ack = _TCP_ACK.get(key, 1)
+    if payload:
+        # Data after a SYN acknowledges the SYN's sequence number, so the ACK
+        # field must be non-zero on the first data segment or Zeek treats the
+        # stream as never having left the handshake.
+        ack = max(ack, 1)
+        _TCP_SEQ[key] = seq + len(payload)
+        _TCP_ACK[key] = ack
     events.append((t, Ether() / IP(src=src, dst=dst) /
-                   TCP(sport=sport, dport=dport, flags=flags) / Raw(payload)))
+                   TCP(sport=sport, dport=dport, flags=flags, seq=seq, ack=ack) /
+                   Raw(payload)))
 
 
 def _udp(t, src, dst, sport, dport, size):
@@ -63,10 +117,10 @@ def _udp(t, src, dst, sport, dport, size):
                    UDP(sport=sport, dport=dport) / Raw(payload)))
 
 
-def _dns_query(t, src, qname):
+def _dns_query(t, src, qname, qtype=1):
     events.append((t, Ether() / IP(src=src, dst=DNS_SERVER) /
                    UDP(sport=_sport(), dport=53) /
-                   DNS(rd=1, qd=DNSQR(qname=qname))))
+                   DNS(rd=1, qd=DNSQR(qname=qname, qtype=qtype))))
 
 
 # ---------------- TLS profile assignment (stable per host) ----------------
@@ -138,8 +192,8 @@ for i in range(int((DURATION - MALWARE_TLS_START) / 45)):
 # ---------------- ATTACK 1c: malware moves C2 to QUIC (t=250+) ------------
 # Same malware TLS stack, now inside QUIC Initial packets (UDP:443).
 # Exercises the QUIC leg of class (d): one-way JA4 from QUIC crypto stream.
-from hello_profiles import malware_hello as _mal_hello_raw
-from quic_meta import build_quic_initial
+from core.hello_profiles import malware_hello as _mal_hello_raw
+from core.quic_meta import build_quic_initial
 _mal_hs = _mal_hello_raw()[5:]         # strip TLS record layer -> hs message
 import os as _os2
 for i in range(3):
@@ -153,6 +207,22 @@ ALPHA = "abcdefghijklmnopqrstuvwxyz0123456789"
 for i in range(int(DURATION / 10) - 2):
     label = "".join(random.choices(ALPHA, k=14))
     _dns_query(10 + i * 10, INTERNAL[7], label + ".com.")
+
+# ---------------- ATTACK 2c: DNS tunnelling exfil (slow, bulk qtype) ------
+# PS class (c) asks for "query-length and record-type anomalies". This models
+# dnscat2/iodine: stolen data is base32-encoded INTO the query label and sent
+# under a bulk-carrying record type, in a low trickle that a volume alarm
+# would never see. Every feature used to catch it is written by the client
+# into the query, so all of it survives a one-way feed.
+TUNNEL_START = 220.0
+assert TUNNEL_START > BASELINE_SECONDS, "tunnel would poison the baseline"
+_b32 = "abcdefghijklmnopqrstuvwxyz234567"
+for i in range(int((DURATION - TUNNEL_START) / 7)):
+    # ~50 chars of payload per query, chunked: this is what a real tunnel
+    # looks like on the wire, not a single oversized packet.
+    chunk = "".join(random.choices(_b32, k=50))
+    _dns_query(TUNNEL_START + i * 7, INTERNAL[9],
+               chunk + ".exfil." + "x" * 8 + ".com.", qtype=16)   # TXT
 
 # ---------------- ATTACK 2b: same DGA host also beacons (fusion fodder) ---
 # Realistic botnet: DGA-resolved C2 + periodic beaconing from one host.
@@ -169,11 +239,25 @@ for _ in range(3000):
          _sport(), 443, 60, "S")
 
 # ---------------- ATTACK 4: vertical port scan (500 ports) ----------------
+# Two bursts: an early one (pre-split, for the models567 trainer) and the main
+# one. The category-6 scan models need malicious rows on BOTH sides of the
+# temporal split; a single 15 s burst falls entirely on one side and leaves the
+# holdout with nothing to score (see models567/eval.json before this fix).
+for i in range(200):
+    _tcp(250 + i * 0.03, INTERNAL[11], SCAN_TARGET, _sport(),
+         20 + i * 2, 60, "S")
 for i in range(500):
     _tcp(400 + i * 0.03, INTERNAL[11], SCAN_TARGET, _sport(),
          20 + i * 2, 60, "S")
 
 # ---------------- ATTACK 5: data exfiltration (2.8 MB to novel dst) ----------------
+# Same rationale as the scan burst: an early transfer so the category-7 exfil
+# models have malicious training rows, and the main one so the holdout can
+# actually test them. Spanning ~5 windows is deliberate: exfil_features are
+# per-(src,dst) per-window, so a burst shorter than a few windows leaves the
+# classifier with 2-3 positive rows and it never learns the class.
+for i in range(1500):
+    _tcp(300 + i * 0.03, INTERNAL[9], EXFIL_DST, 52000, 8443, 1400, "PA")
 for i in range(2000):
     _tcp(480 + i * 0.03, INTERNAL[9], EXFIL_DST, 51000, 8443, 1400, "PA")
 

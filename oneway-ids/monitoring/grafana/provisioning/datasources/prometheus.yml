@@ -1,0 +1,17 @@
+apiVersion: 1
+
+# Datasource is provisioned read-only on container start -- no clicking.
+deleteDatasources:
+  - name: Prometheus
+    orgId: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: nids-prom
+    access: proxy
+    url: http://localhost:9090   # prometheus runs host-networked
+    isDefault: true
+    jsonData:
+      timeInterval: 15s        # match the scrape interval
+      httpMethod: POST
