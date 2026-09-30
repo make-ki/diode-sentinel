@@ -8,6 +8,97 @@ subdirectory. Branch: `integrate/models-567`.
 
 **Deadline:** idea submission **30 September 2026**.
 
+## One-hour delivery update — 30 September 2026
+
+This is the latest implementation and validation state; older counts and open
+items below are historical snapshots. Full detail: `docs/ONE-HOUR-DELIVERY.md`.
+
+- `--source-context` opts into bounded per-source destination history for
+  exfiltration indicators. `--rolling-scan` adds exact fan-out accumulation
+  over a 60-second horizon. Both are off by default. Their focused behavior
+  tests pass; rolling history is capped and eviction is surfaced in evidence.
+- Category 5 metadata scoring now skips flows without a complete observed
+  ClientHello; packet-sequence scoring remains eligible. The dashboard labels
+  common model inputs and supports exporting a selected alert bundle. Export
+  hashes the alert content but does not invent capture, packet, or model
+  provenance and makes no legal chain-of-custody claim.
+- QUIC v1 Initial derivation and decryption now pass independent RFC 9001
+  Appendix A.1/A.2 key, IV, header-protection, and published-packet checks; the
+  extracted ClientHello JA4 carries the QUIC `q` prefix. See
+  `docs/quic-verification.md`.
+- On the archived 14,049-packet capture, current rules/ML outputs contain 45/67
+  alerts. The dpkt and Scapy complete outputs are byte-identical to each other.
+  The preserved historical fixtures remain 46/68 and therefore the historical
+  regression gate is **not passing**: the sole difference is one removed
+  `tls_known_malware` record produced by the old invalid synthetic QUIC packet;
+  all other records are unchanged. Fixture migration is pending review; do not
+  overwrite the references or claim a passing fixture gate.
+- All 23 test scripts pass after supplying an isolated synthetic alert input
+  to the dashboard test. The opt-in demo smoke test was also explicitly run:
+  alerts arrive while the FIFO replay is active and Ctrl-C cleans up.
+  A separate replay with `--models-567`, `--source-context`, and `--rolling-scan`
+  passes complete-record dpkt/Scapy parity (79 alerts on the archived capture).
+  These counts do not establish real-world detection quality.
+- Browser checks pass for named model inputs, the evidence JSON download,
+  filter preservation, and mobile overflow. See `docs/one-hour-validation.json`.
+  The presentation was regenerated from `build_deck.py` with corrected claims.
+- No model was retrained and no external or real-world dataset was rerun in this
+  delivery. Rolling scan and source context do not change model inputs or
+  thresholds. Indefinitely active flows still do not receive partial-flow model
+  inference.
+
+## Implementation update — 29 September 2026
+
+### MVP follow-up — 30 September 2026
+
+- `demo.sh` now generates an isolated synthetic capture, starts the dashboard
+  before a paced FIFO replay, and leaves the completed results visible until
+  Ctrl-C. See `docs/demo.md`; default replay speed is 10x.
+- The dashboard displays sensor lifecycle, heartbeat freshness, last received
+  packet time and capture counters. Unavailable counters remain unknown;
+  pcap replay cannot measure kernel capture drops.
+- UDP source fan-out and shared-target burst signals now exist, with measured
+  rates, cardinalities, UDP metadata and prototype thresholds in the evidence.
+  See `docs/udp-signals.md`. These do not establish reflection or amplification.
+
+The older remaining-work note below predates these changes. Slow-flow
+signatures and real-interface AF_PACKET validation remain outstanding.
+
+This section supersedes proposed remedies below where they overlap.
+
+- Authorised-destination registry shipped, empty by default. Explicit demo
+  approval demotes MESSY backup exfil from critical 0.95 to medium 0.60 without
+  suppression; host/port/protocol/volume mismatches remain alertable. See
+  `docs/destination-policy.md`. Cloud ownership alone is not authorisation.
+- Exfil flow IDs now report observed endpoints, not hardcoded TCP/8443.
+- `training/score_iot23.py` and tests are committed-source candidates: local
+  pcap + labelled conn.log, originator-only filtering, input hashes, host scores.
+  Dataset remains unavailable: /dev/sda1 absent, /mnt mounts empty. Historical
+  IoT-23 results have NOT been remeasured. See `docs/iot23-validation.md`.
+- IsolationForests no longer emit standalone model alerts. Raw uncalibrated
+  scores attach to existing supervised alerts only after a matching rule fires
+  in the same window. This changes triage, not their measured classifier recall.
+- Replay-training CLI repaired (reader tuple drift and JSON scalar bug), with
+  explicitly selected benign sources and separate experiment model output.
+  Same synthetic flow holdout: shipped 35/541 benign FPs vs experiment 2/541;
+  both detect 60/75 malicious flows. Full MESSY replay: 79 vs 25 ML alerts,
+  including 59 vs 4 on designated benign hosts. Full replay includes training
+  times; do not present that comparison as held-out performance. Shipped model
+  was NOT replaced. Details and report: `docs/ml-replay.md`.
+- Historical 29 September validation was 13 scripts and 46/68 fixture alerts;
+  it is superseded by the one-hour delivery status above. The latest archived
+  capture differs from those fixtures by the invalid synthetic-QUIC alert only.
+
+Remaining work: do not claim the Trojan miss or HUE FP fixed. Remedy #2 below
+contradicts itself about whether the destination is known; a successful session
+is not directly observable. Reproduce the miss before choosing a proxy. Broad
+cloud CIDRs do not establish trustworthy tenants or operator approval; any
+reputation tier needs provenance and validation. AF_PACKET still needs an
+explicitly selected test interface with CAP_NET_RAW. Slow-flow signatures and
+partial-flow model inference remain outstanding. Source-context and rolling
+scan are opt-in and do not establish generalization. No GPU migration:
+repository instructions prohibit it.
+
 ---
 
 ## What the user wants (read this first)
@@ -85,7 +176,7 @@ run.py                 end-to-end runner (--live, --parity, --ml, --state)
 demo.sh                one-command demo; --fresh regenerates the capture
 gen_traffic.py         synthetic one-way pcap (MESSY=1 = FP-pressure variant)
 dashboard.py           stdlib SOC dashboard (port 8600)
-build_deck.py          PRESENTATION.md -> ../Diode-Sentinel.pptx  (17 slides)
+build_deck.py          PRESENTATION.md -> ../Diode-Sentinel.pptx  (20 slides)
 build_contract_image.py  core/observability.py -> contract.png
 core/                  the pipeline: pcap_reader, live_source, pipeline,
                        detectors, tls_meta, quic_meta, ml_tier, dga_cnn,
@@ -125,10 +216,13 @@ for t in tests/test_*.py; do .venv/bin/python "$t" || break; done
   it is not reproducible as a single number). Mean packet 613.7 B. Do NOT lead
   with "~2,000x real-time" — the capture is sparse (23 pkt/s ≈ 0.11 Mbps), so
   it is one measurement restated; quote it only as repeatability.
-- **Reproducibility:** replay reproduces `alerts.jsonl` byte-for-byte against
-  `.regression/` fixtures — **46 alerts rules-only, 68 with `--ml`** (the old
-  docs said 45/67; corrected). `--parity` asserts dpkt and scapy produce
-  identical alert distributions.
+- **Reproducibility:** latest archived capture produces 45 rules alerts and 67
+  with `--ml`; dpkt and Scapy complete outputs are byte-identical to one
+  another. The preserved references still contain 46/68 records. Their sole
+  mismatch is the removed `tls_known_malware` alert from the old invalid
+  synthetic QUIC packet; the historical reference gate therefore fails pending
+  reviewed fixture migration. Do not call the current output byte-identical to
+  the references.
 - **DGA char-CNN** (`core/dga_cnn.py`): numpy-only 1D conv, 4,930 params,
   analytic gradients match finite differences to 7e-09. Family-held-out: CNN
   1.000 vs rules 0.473 recall on an unseen family, benign FP 0.001 vs 0.003.
@@ -141,10 +235,10 @@ for t in tests/test_*.py; do .venv/bin/python "$t" || break; done
   k=4. **The famous "CNN caught a real DGA query the rules called benign"
   line does NOT fire at the shipped quorum** — quote it as a benchmark
   measurement, never as a live alert.
-- **QUIC:** Initial packets are decryptable with no secret (RFC 9001 public
-  salt + DCID), so a real JA4 comes out of QUIC on a one-way feed.
-  `tests/test_quic.py` proves it byte-identical to the direct TLS parse, and
-  a GCM-tampered packet is rejected rather than mis-fingerprinted.
+- **QUIC:** QUIC v1 Initial key derivation, header protection, and a published
+  packet pass independent RFC 9001 Appendix A.1/A.2 checks. Extracted metadata
+  includes a QUIC-prefixed JA4 from the public ClientHello; this is not
+  application-data decryption. See `docs/quic-verification.md`.
 - **IoT-23 validation** (real, but NOT repo-reproducible): per-host scoring
   — Capture-8-1 Hakai 1.000 recall/precision; Capture-1-1 HideNSeek 1.000
   (flagged the infected host, 0 clean FPs); Capture-42-1 Trojan **0.000, a
@@ -328,3 +422,82 @@ fix is never "remove the slide", it is "say the true version".
 
 Note the shape of the top five: every one is a detector or a config the repo
 already has the plumbing for. None is a rewrite.
+
+## Product demo film — completed 30 September 2026
+
+Current deliverable is `diode-sentinel-launch/out/diode-sentinel-product-demo.mp4`:
+52 seconds, 1080p30, narrated, with the user's First Light soundtrack and
+**samarags** credit. It replaces the contract-first narrative with the
+user-approved real software walkthrough in `VIDEO-BRIEF.md` §9. It shows fresh
+synthetic replay, actual mouse interaction, an opened alert, source filtering,
+correlation, named model roles and passive one-way monitoring. No sensor or
+detector code was changed for this film.
+
+`diode-sentinel-launch/README.md`, `CLAIMS-TRACE.md` and `VALIDATION.md` document
+rendering, exact selected records and final visual/audio checks. Review frames
+are in `out/review/`. The soundtrack is extracted from the supplied MP4;
+measured accents determine scene cuts. A measured 43 ms codec-padding offset
+was corrected without re-encoding; `scripts/verify-narration.py --align` can
+repeat and verify that correction. Do not run the legacy prepare-media script:
+it belongs to the older silent film and overwrites the measured beat sheet.
+The current config automatically runs `scripts/prepare-product.mjs` instead.
+
+The original launch MP4 remains in `out/`. The DNS shot opens a rules alert;
+the character CNN description is its model role, not an attribution claim.
+Do not add performance or probability claims to these synthetic UI counts.
+
+## Nuance research and verification updates — 30 September 2026
+
+`docs/hackathon-edge-research.md` maps the PS requirements to implemented
+advantages, proposed additions and a roughly four-minute B+C film. User wants
+natural Indian English narration and allows a longer explainer. No new video
+or detector edits were made in this research pass.
+
+The earlier mismatch recorded in `docs/nuance-quic-reference-check.json` has
+been corrected and independently checked against RFC 9001 Appendix A.1/A.2;
+`docs/quic-verification.md` describes supported v1 Initial behavior and limits.
+The old synthetic QUIC packet was invalid, which accounts for the one
+historical fixture alert removed in the current replay.
+
+`docs/nuance-stream-checks.json` verifies that continuous packets keep a flow
+unclosed; models are still called at idle closure, so do not claim bounded model
+latency for indefinitely active flows. Destination novelty remains fleet-global
+by default; `--source-context` adds a bounded per-source lookback as an opt-in
+rule path. `--rolling-scan` adds a separate bounded fan-out horizon. Neither
+change modifies the existing single-window model feature distribution.
+
+## B+C explainer film — completed 1 October 2026
+
+The new deliverable is
+`diode-sentinel-launch/out/diode-sentinel-explainer.mp4`: 7:33.6,
+1920×1080 at 30 fps, H.264/AAC, 97,960,990 bytes. It implements the current
+production authorization in `VIDEO-BRIEF.md` §11. The previous 52-second
+product film remains available under its original name.
+
+The twelve scenes explain packets → flows/windows → timing, rolling scans and
+source-relative history → DNS/encrypted model inputs → correlation → selected
+evidence export. Animated diagrams accompany actual cursor-operated software
+recordings. All nine recorded workflows are shown completely at 1× playback;
+the overview is reused for packet organization. Synthetic replay is labeled
+throughout: 14,171 packets and 108 records are demonstration counts, not new
+accuracy or throughput results. No sensor or detector changes were made for
+this film.
+
+Narration uses Microsoft's Indian English synthetic voice
+`en-IN-PrabhatNeural`, verified `en-IN`, at −10% provider rate. The supplied
+First Light music is extended at its original tempo, ducked under narration,
+and synchronized using measured accents. There is no speech time compression.
+
+The final exported audio passed twelve narration and twelve music matches:
+maximum narration residual 0.6667 ms, maximum music residual 0 ms, with zero
+clipped samples in the decoded-mono check. Thirty-two actual-export frames
+were visually reviewed after draft fixes to framing, labels and timing.
+TypeScript checks and all asset/text/provenance preparation gates passed.
+
+See `diode-sentinel-launch/README.md`, `EXPLAINER-CLAIMS-TRACE.md`,
+`EXPLAINER-VALIDATION.md`, `out/explainer-production-checks.json`,
+`out/explainer-audio-sync.json` and `out/explainer-review/export/frames.json`.
+Prepare with `npm run prepare:explainer`, preview with `npx remotion studio
+src/index.ts`, and render with `npm run render:explainer` from the video project.
+The current composition is `DiodeSentinelExplainer`; older compositions and
+their evidence remain separate.

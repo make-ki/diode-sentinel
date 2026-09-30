@@ -1,0 +1,234 @@
+{
+  "tests": [
+    {
+      "test": "test_bench_dga.py",
+      "passed": true,
+      "seconds": 0.15
+    },
+    {
+      "test": "test_contract.py",
+      "passed": true,
+      "seconds": 0.138
+    },
+    {
+      "test": "test_dashboard.py",
+      "passed": true,
+      "seconds": 0.912,
+      "fixture": "isolated copy of frozen synthetic ML alerts"
+    },
+    {
+      "test": "test_dashboard_health.py",
+      "passed": true,
+      "seconds": 0.102
+    },
+    {
+      "test": "test_dashboard_signals.py",
+      "passed": true,
+      "seconds": 0.065
+    },
+    {
+      "test": "test_demo_replay.py",
+      "passed": true,
+      "seconds": 0.055
+    },
+    {
+      "test": "test_demo_smoke.py",
+      "passed": true,
+      "seconds": 0.058
+    },
+    {
+      "test": "test_destination_policy.py",
+      "passed": true,
+      "seconds": 0.079
+    },
+    {
+      "test": "test_dga_cnn.py",
+      "passed": true,
+      "seconds": 2.693
+    },
+    {
+      "test": "test_evidence_export.py",
+      "passed": true,
+      "seconds": 0.099
+    },
+    {
+      "test": "test_fusion.py",
+      "passed": true,
+      "seconds": 0.034
+    },
+    {
+      "test": "test_hour_fixes.py",
+      "passed": true,
+      "seconds": 0.128
+    },
+    {
+      "test": "test_iot23.py",
+      "passed": true,
+      "seconds": 0.104
+    },
+    {
+      "test": "test_live.py",
+      "passed": true,
+      "seconds": 4.15
+    },
+    {
+      "test": "test_metrics.py",
+      "passed": true,
+      "seconds": 0.677
+    },
+    {
+      "test": "test_models_567.py",
+      "passed": true,
+      "seconds": 0.112
+    },
+    {
+      "test": "test_quic.py",
+      "passed": true,
+      "seconds": 0.047
+    },
+    {
+      "test": "test_rolling_scan.py",
+      "passed": true,
+      "seconds": 0.061
+    },
+    {
+      "test": "test_sensor_health.py",
+      "passed": true,
+      "seconds": 0.167
+    },
+    {
+      "test": "test_source_history.py",
+      "passed": true,
+      "seconds": 0.063
+    },
+    {
+      "test": "test_tls_meta.py",
+      "passed": true,
+      "seconds": 0.035
+    },
+    {
+      "test": "test_train_ml.py",
+      "passed": true,
+      "seconds": 0.776
+    },
+    {
+      "test": "test_udp_burst.py",
+      "passed": true,
+      "seconds": 0.128
+    }
+  ],
+  "test_scripts_passed": 23,
+  "test_scripts_total": 23,
+  "replays": [
+    {
+      "tier": "rules",
+      "parser": "dpkt",
+      "capture": "existing traffic.pcap (historical synthetic QUIC)",
+      "packets": 14049,
+      "alerts": 45,
+      "byte_identical_to_historical_reference": false,
+      "missing_records": 1,
+      "extra_records": 0,
+      "missing_classes": {
+        "tls_known_malware": 1
+      },
+      "extra_classes": {},
+      "complete_record_parser_parity": true
+    },
+    {
+      "tier": "rules",
+      "parser": "scapy",
+      "capture": "existing traffic.pcap (historical synthetic QUIC)",
+      "packets": 14049,
+      "alerts": 45,
+      "byte_identical_to_historical_reference": false,
+      "missing_records": 1,
+      "extra_records": 0,
+      "missing_classes": {
+        "tls_known_malware": 1
+      },
+      "extra_classes": {},
+      "complete_record_parser_parity": true
+    },
+    {
+      "tier": "ml",
+      "parser": "dpkt",
+      "capture": "existing traffic.pcap (historical synthetic QUIC)",
+      "packets": 14049,
+      "alerts": 67,
+      "byte_identical_to_historical_reference": false,
+      "missing_records": 1,
+      "extra_records": 0,
+      "missing_classes": {
+        "tls_known_malware": 1
+      },
+      "extra_classes": {},
+      "complete_record_parser_parity": true
+    },
+    {
+      "tier": "ml",
+      "parser": "scapy",
+      "capture": "existing traffic.pcap (historical synthetic QUIC)",
+      "packets": 14049,
+      "alerts": 67,
+      "byte_identical_to_historical_reference": false,
+      "missing_records": 1,
+      "extra_records": 0,
+      "missing_classes": {
+        "tls_known_malware": 1
+      },
+      "extra_classes": {},
+      "complete_record_parser_parity": true
+    }
+  ],
+  "historical_reference_policy": "Reference files preserved; protocol corrections require explicitly reviewed fixture migration.",
+  "skipped_checks": [],
+  "demo_smoke": {
+    "passed": true,
+    "test": "tests/test_demo_smoke.py",
+    "environment": "DIODESENTINEL_DEMO_SMOKE=1",
+    "verified": [
+      "alerts arrive during paced FIFO replay",
+      "Ctrl-C cleans up"
+    ]
+  },
+  "combined_options_replay": {
+    "options": [
+      "--models-567 models567/manifest.json",
+      "--source-context",
+      "--rolling-scan",
+      "--parity",
+      "--no-state"
+    ],
+    "capture": "existing synthetic traffic.pcap",
+    "packets": 14049,
+    "alerts": 79,
+    "complete_record_parser_parity": true,
+    "quality_benchmark": false
+  },
+  "browser": {
+    "passed": [
+      "replayed alerts load",
+      "named encrypted model inputs visible",
+      "model input interpretation caveat visible",
+      "export button completes",
+      "browser saves evidence JSON",
+      "download uses evidence schema",
+      "download matches selected alert",
+      "download records active model filter",
+      "download identifies missing capture provenance",
+      "mobile page has no horizontal overflow",
+      "mobile evidence modal has no horizontal overflow",
+      "no browser exceptions"
+    ],
+    "screenshots": [
+      "/tmp/diode-hour-model-evidence.png",
+      "/tmp/diode-hour-mobile-evidence.png"
+    ],
+    "download": "/tmp/diode-hour-downloads-1790792149962/diode-alert-435d8311fa6a.json"
+  },
+  "historical_reference_sha256": {
+    "rules": "430482bc8a1eea27b12f60b34f104afd571964e927a9304cdb935666e300ec5c",
+    "ml": "c2dfe742e7d8ad2baf492cdc4ecf0fe32a3cf0cd91e0e2cdb132c16d2015a60c"
+  }
+}

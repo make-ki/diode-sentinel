@@ -21,6 +21,7 @@ import threading
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
+from urllib.parse import urlencode
 
 import dashboard as dash
 from core.config import ALERTS_PATH
@@ -102,11 +103,20 @@ check("hosts_exclude_wildcard",
 # 3. class map covers everything the detectors emit (list mirrors the emit sites)
 EMITTED = [
     "ddos_volumetric_spoofed", "ddos_syn_flood", "c2_beaconing", "dga_domain",
+    "dns_tunneling", "encrypted_session_malware", "recon_model_scan",
+    "data_exfiltration_model",
     "tls_known_malware", "tls_novel_fingerprint", "recon_vertical_scan",
-    "recon_horizontal_scan", "data_exfiltration", "ml_flow_suspicious",
+    "recon_horizontal_scan", "recon_rolling_vertical_scan",
+    "recon_rolling_horizontal_scan", "data_exfiltration", "ml_flow_suspicious",
 ]
 unmapped = sorted(c for c in EMITTED if c not in dash.CLASS_TO_PS)
 check("all_emitted_classes_mapped", not unmapped, unmapped)
+check("real_classes_map_to_ps_categories",
+      {cls: dash.CLASS_TO_PS.get(cls) for cls in (
+          "dns_tunneling", "encrypted_session_malware", "recon_model_scan",
+          "data_exfiltration_model")} == {
+          "dns_tunneling": "c", "encrypted_session_malware": "d",
+          "recon_model_scan": "e", "data_exfiltration_model": "f"})
 
 from core.detectors import FUSED_CLASSES                       # noqa: E402
 unmapped_fused = sorted(c for c in FUSED_CLASSES if c not in dash.CLASS_TO_PS)
@@ -293,7 +303,7 @@ check("theme_toggle_supported", 'data-theme="dark"' in index and
 
 # 9. client only calls endpoints the server implements
 asked = set(re.findall(r"fetch\('/api/([a-z]+)", app_js))
-check("client_endpoints_exist", asked <= {"alerts", "stats"}, sorted(asked))
+check("client_endpoints_exist", asked <= {"alerts", "export"}, sorted(asked))
 check("client_has_no_cdn_fallback",
       "cdn." not in app_js and "http://" not in app_js and "https://" not in app_js)
 check("chart_canvases_exist",
@@ -303,11 +313,61 @@ check("modal_is_dialog", '<dialog class="modal" id="detail-modal">' in index)
 # every element the client grabs must exist: a typo'd id fails silently as
 # null in the browser, which no amount of curl-testing would catch.
 HTML_IDS = set(re.findall(r'id="([^"]+)"', index))
-DYNAMIC_IDS = {"search", "class-select", "limit-select"}   # built by app.js
+DYNAMIC_IDS = {"search", "class-select", "limit-select", "kind-select", "sort-select"}   # built by app.js
 wanted = set(re.findall(r"\$\('([^']+)'\)", app_js))
 missing_ids = sorted(wanted - HTML_IDS - DYNAMIC_IDS)
 check("client_ids_exist", not missing_ids, missing_ids)
 check("client_ids_used", len(wanted) >= 20, len(wanted))
+
+# Signal presentation never changes the underlying record and keeps derived
+# correlations separate from primary detector records.
+from dashboard_signals import describe_alert, summarize_alerts
+check("signal_counts_match_all_records", stats["signals"] == summarize_alerts(full_alerts))
+for kind in ("rule", "model", "correlation"):
+    _, subset = get_json("/api/alerts?kind=" + kind)
+    check("origin_filter_" + kind, subset["matched"] == sum(
+        describe_alert(a)["kind"] == kind for a in full_alerts))
+    check("origin_rows_" + kind, all(a["triage"]["kind"] == kind for a in subset["alerts"]))
+check("presentation_preserves_original_records", all(
+    {k: v for k, v in a.items() if k != "triage"} in full_alerts for a in data["alerts"]))
+from core.evidence_export import record_sha256
+eligible = next((a for a in full_alerts if a.get("severity")), None)
+if eligible:
+    sev_value = eligible["severity"]
+    _, export_page = get_json("/api/alerts?severity=%s&limit=1" % sev_value)
+    export_row = export_page["alerts"][0]
+    _, export_bundle = get_json("/api/export?" + urlencode({
+        "severity": sev_value, "limit": 1,
+        "record": export_row["triage"]["export_key"],
+    }))
+    export_record = export_bundle["alert"]["record"]
+    check("evidence_export_preserves_selected_record",
+          export_record in full_alerts and
+          export_bundle["alert"]["record_sha256"] == record_sha256(export_record))
+    check("evidence_export_records_active_filters_and_truncation",
+          export_bundle["filter_context"]["filters"].get("severity") == [sev_value]
+          and export_bundle["filter_context"]["page_limit"] == 1
+          and export_bundle["filter_context"]["page_truncated"] ==
+          (export_page["matched"] > len(export_page["alerts"])))
+else:
+    check("evidence_export_preserves_selected_record", False, "no fixture alert")
+    check("evidence_export_records_active_filters_and_truncation", False,
+          "no fixture alert")
+source_probe = next(a["src"] for a in full_alerts if a.get("src") not in (None, "*"))
+_, source_page = get_json("/api/alerts?src=" + source_probe)
+check("source_filter_is_exact", source_page["matched"] == sum(a.get("src") == source_probe for a in full_alerts)
+      and all(a["src"] == source_probe for a in source_page["alerts"]))
+_, priority = get_json("/api/alerts?sort=severity&limit=5")
+expected_priority = sorted(full_alerts, key=lambda a: (dash.SEV_RANK.get(a.get("severity"), 0),
+                                                       a.get("timestamp", "")), reverse=True)[:5]
+check("severity_sort_before_limit", [a["timestamp"] for a in priority["alerts"]] ==
+      [a["timestamp"] for a in expected_priority])
+time_probe = full_alerts[0]["timestamp"]
+_, exact_time = get_json("/api/alerts?" + urlencode({"from": time_probe, "to": time_probe}))
+check("time_filter_inclusive", exact_time["matched"] == sum(a.get("timestamp") == time_probe for a in full_alerts))
+check("invalid_time_is_400", get_json("/api/alerts?from=invalid")[0] == 400)
+check("inverted_time_is_400", get_json("/api/alerts?from=2026-01-02T00:00:00Z&to=2026-01-01T00:00:00Z")[0] == 400)
+check("timestamp_range_uses_extremes", dash._stats(list(reversed(full_alerts)), {})["first_alert"] == stats["first_alert"])
 
 # 10. live tail: the pipeline appends while the dashboard polls, so a
 # half-written last line must be skipped rather than crash the request.

@@ -8,7 +8,7 @@ state assumptions, no response-side features.
 from collections import Counter, defaultdict
 
 from core.config import WINDOW, IDLE_TIMEOUT, TICK_INTERVAL, TLS_PORTS
-from core.detectors import (DDosDetector, ScanDetector, ExfilDetector,
+from core.detectors import (DDosDetector, UdpBurstDetector, ScanDetector, ExfilDetector,
                        BeaconDetector, DGADetector, TlsDetector, FusionEngine)
 from core.tls_meta import TlsRecordReassembler, SeqTracker, parse_client_hello
 from core.quic_meta import is_quic_initial, extract_quic_client_hello
@@ -96,11 +96,17 @@ class WindowAggregator:
         return dict(idx=idx, t0=idx * self.window, t1=(idx + 1) * self.window,
                     npkt=0, nbytes=0, nsyn=0,
                     srcs=Counter(), pairs=defaultdict(set),
+                    proto_pkts=Counter(),
                     src_bytes=defaultdict(float),
                     pair_bytes=defaultdict(float),
+                    pair_endpoints=defaultdict(set),
+                    udp_src_packets=Counter(), udp_src_bytes=Counter(),
+                    udp_src_destinations=defaultdict(set),
+                    udp_src_endpoints=defaultdict(set),
+                    udp_target_src_packets=defaultdict(Counter),
                     novel_dsts=set(), novel_bytes=defaultdict(float))
 
-    def feed(self, t, src, dst, dport, size, is_syn):
+    def feed(self, t, src, dst, dport, size, is_syn, proto=None):
         idx = int(t // self.window)
         if self.cur is not None and idx > self.cur["idx"]:
             self._flush(self.cur)
@@ -113,9 +119,19 @@ class WindowAggregator:
         w["nbytes"] += size
         w["nsyn"] += int(is_syn)
         w["srcs"][src] += 1
+        if proto is not None:
+            w["proto_pkts"][proto] += 1
         w["pairs"][src].add((dst, dport))
         w["src_bytes"][src] += size
         w["pair_bytes"][(src, dst)] += size
+        if proto is not None:
+            w["pair_endpoints"][(src, dst)].add((proto, dport))
+        if proto == "udp":
+            w["udp_src_packets"][src] += 1
+            w["udp_src_bytes"][src] += size
+            w["udp_src_destinations"][src].add(dst)
+            w["udp_src_endpoints"][src].add((dst, dport))
+            w["udp_target_src_packets"][(dst, dport)][src] += 1
         if dst not in self.seen_dsts:
             self.seen_dsts.add(dst)
             w["novel_dsts"].add(dst)
@@ -163,7 +179,8 @@ class StreamProcessor:
     """
 
     def __init__(self, sink, ml_scorer=None, tick_interval=TICK_INTERVAL,
-                 tls_state_path=None, dga_cnn=None, models567=None):
+                 tls_state_path=None, dga_cnn=None, models567=None,
+                 source_context=False, rolling_scan=False):
         self.sink = sink
         self.ml_scorer = ml_scorer
         self.dga_cnn = dga_cnn
@@ -174,17 +191,21 @@ class StreamProcessor:
         self.agg = WindowAggregator()
 
         self.ddos = DDosDetector(sink)
-        self.scan = ScanDetector(sink)
-        self.exfil = ExfilDetector(sink)
+        self.udp_burst = UdpBurstDetector(sink)
+        self.scan = ScanDetector(sink, rolling_window=60 if rolling_scan else 0)
+        self.exfil = ExfilDetector(sink, source_context=source_context)
         self.beacon = BeaconDetector(sink)
         self.dga = DGADetector(sink, cnn=dga_cnn)
         self.tls = TlsDetector(sink, state_path=tls_state_path)
         self.fusion = FusionEngine(sink)
         sink.subscribe(self.fusion.on_alert)
         self.agg.register(self.ddos.on_window)
+        self.agg.register(self.udp_burst.on_window)
         self.agg.register(self.scan.on_window)
         self.agg.register(self.exfil.on_window)
+        self._window_rule_alerts = set()
         if self.models567:
+            sink.subscribe(self._remember_rule_alert)
             self.agg.register(self._score_model_window)
 
         self.npkt = self.ndns = self.ntls = 0
@@ -201,7 +222,7 @@ class StreamProcessor:
          seq, qtype) = pkt
         self.npkt += 1
         self.assembler.feed(t, src, sport, dst, dport, proto, size, is_syn)
-        self.agg.feed(t, src, dst, dport, size, is_syn)
+        self.agg.feed(t, src, dst, dport, size, is_syn, proto)
 
         if proto == "tcp":
             # ---- TLS metadata hook (one-way, ClientHello only) ----
@@ -239,9 +260,11 @@ class StreamProcessor:
             if dport in TLS_PORTS and payload and is_quic_initial(payload):
                 qkey = (src, sport, dst, dport)
                 if qkey not in self.quic_seen:
-                    self.quic_seen.add(qkey)
                     qmeta = extract_quic_client_hello(payload)
                     if qmeta is not None:
+                        # A failed first Initial must not hide a later valid
+                        # retransmission on the same observed flow.
+                        self.quic_seen.add(qkey)
                         self.ntls += 1
                         flow = self.assembler.active.get(
                             (src, sport, dst, dport, "udp"))
@@ -257,17 +280,29 @@ class StreamProcessor:
             self.sink.emit(flow["t1"], src, dst, dport, proto,
                            threat, confidence, evidence)
 
+    def _remember_rule_alert(self, t, alert):
+        threat = alert["threat_class"]
+        if alert.get("evidence", {}).get("authorised_destination"):
+            return
+        if threat in {"recon_vertical_scan", "recon_horizontal_scan", "data_exfiltration"}:
+            self._window_rule_alerts.add((threat, alert["src"], alert["dst"]))
+
     def _score_model_window(self, window):
         if not self.models567:
             return
+        rule_alerts = self._window_rule_alerts
+        self._window_rule_alerts = set()
+        scan_sources = {src for threat, src, dst in rule_alerts
+                        if threat.startswith("recon_")}
         for src in window["pairs"]:
             for threat, confidence, evidence in self.models567.score_scan(
-                    window, src):
+                    window, src, rule_corroborated=src in scan_sources):
                 self.sink.emit(window["t1"] - 1, src, "*", 0, "*",
                                threat, confidence, evidence)
         for (src, dst), total in window["pair_bytes"].items():
             for threat, confidence, evidence in self.models567.score_exfil(
-                    window, src, dst, total):
+                    window, src, dst, total,
+                    rule_corroborated=("data_exfiltration", src, dst) in rule_alerts):
                 self.sink.emit(window["t1"] - 1, src, dst, 0, "*",
                                threat, confidence, evidence)
 
@@ -281,6 +316,8 @@ class StreamProcessor:
                 self.ml_scorer.on_flow(f)
             k = f["key"]
             self.tls_states.pop((k[0], k[1], k[2], k[3]), None)
+            if k[4] == "udp":
+                self.quic_seen.discard((k[0], k[1], k[2], k[3]))
         if self.ml_scorer:
             self.ml_scorer.flush()
         self.agg.tick(t)
@@ -294,6 +331,8 @@ class StreamProcessor:
                 self.ml_scorer.on_flow(f)
             k = f["key"]
             self.tls_states.pop((k[0], k[1], k[2], k[3]), None)
+            if k[4] == "udp":
+                self.quic_seen.discard((k[0], k[1], k[2], k[3]))
         if self.ml_scorer:
             self.ml_scorer.flush()
         self.agg.flush_current()

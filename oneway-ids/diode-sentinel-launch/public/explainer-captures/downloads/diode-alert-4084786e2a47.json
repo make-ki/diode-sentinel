@@ -1,0 +1,397 @@
+{
+  "schema_version": "diode-sentinel-alert-evidence/v1",
+  "generated_at": "2026-09-30T19:28:04+00:00",
+  "filter_context": {
+    "filters": {
+      "q": [
+        "recon_rolling"
+      ],
+      "sort": [
+        "newest"
+      ]
+    },
+    "matched_alerts": 1,
+    "page_limit": 400,
+    "page_truncated": false,
+    "selection": "one alert selected from the matching visible page"
+  },
+  "alert": {
+    "record": {
+      "timestamp": "2025-09-09T21:30:19.000Z",
+      "src": "192.0.2.70",
+      "dst": "198.51.100.70",
+      "flow_id": "192.0.2.70:*->198.51.100.70:*/tcp",
+      "threat_class": "recon_rolling_vertical_scan",
+      "confidence": 0.52,
+      "severity": "medium",
+      "evidence": {
+        "rolling_window_s": 60.0,
+        "rolling_distinct_dst_port_pairs": 20,
+        "current_window_distinct_pairs": 10,
+        "distinct_dst_ips": 1,
+        "pairs_on_top_dst": 20,
+        "oldest_observed_window_end_s": 610.0,
+        "newest_observed_window_end_s": 620.0,
+        "observed_endpoints_sample": [
+          {
+            "dst": "198.51.100.70",
+            "dport": 1000,
+            "protocols": [
+              "tcp"
+            ]
+          },
+          {
+            "dst": "198.51.100.70",
+            "dport": 1001,
+            "protocols": [
+              "tcp"
+            ]
+          },
+          {
+            "dst": "198.51.100.70",
+            "dport": 1002,
+            "protocols": [
+              "tcp"
+            ]
+          },
+          {
+            "dst": "198.51.100.70",
+            "dport": 1003,
+            "protocols": [
+              "tcp"
+            ]
+          },
+          {
+            "dst": "198.51.100.70",
+            "dport": 1004,
+            "protocols": [
+              "tcp"
+            ]
+          },
+          {
+            "dst": "198.51.100.70",
+            "dport": 1005,
+            "protocols": [
+              "tcp"
+            ]
+          },
+          {
+            "dst": "198.51.100.70",
+            "dport": 1006,
+            "protocols": [
+              "tcp"
+            ]
+          },
+          {
+            "dst": "198.51.100.70",
+            "dport": 1007,
+            "protocols": [
+              "tcp"
+            ]
+          },
+          {
+            "dst": "198.51.100.70",
+            "dport": 1008,
+            "protocols": [
+              "tcp"
+            ]
+          },
+          {
+            "dst": "198.51.100.70",
+            "dport": 1009,
+            "protocols": [
+              "tcp"
+            ]
+          },
+          {
+            "dst": "198.51.100.70",
+            "dport": 1010,
+            "protocols": [
+              "tcp"
+            ]
+          },
+          {
+            "dst": "198.51.100.70",
+            "dport": 1011,
+            "protocols": [
+              "tcp"
+            ]
+          },
+          {
+            "dst": "198.51.100.70",
+            "dport": 1012,
+            "protocols": [
+              "tcp"
+            ]
+          },
+          {
+            "dst": "198.51.100.70",
+            "dport": 1013,
+            "protocols": [
+              "tcp"
+            ]
+          },
+          {
+            "dst": "198.51.100.70",
+            "dport": 1014,
+            "protocols": [
+              "tcp"
+            ]
+          },
+          {
+            "dst": "198.51.100.70",
+            "dport": 1015,
+            "protocols": [
+              "tcp"
+            ]
+          },
+          {
+            "dst": "198.51.100.70",
+            "dport": 1016,
+            "protocols": [
+              "tcp"
+            ]
+          },
+          {
+            "dst": "198.51.100.70",
+            "dport": 1017,
+            "protocols": [
+              "tcp"
+            ]
+          },
+          {
+            "dst": "198.51.100.70",
+            "dport": 1018,
+            "protocols": [
+              "tcp"
+            ]
+          },
+          {
+            "dst": "198.51.100.70",
+            "dport": 1019,
+            "protocols": [
+              "tcp"
+            ]
+          }
+        ],
+        "observed_endpoints_truncated": false,
+        "history_evictions": {
+          "source_entries": 0,
+          "pair_entries_total": 0,
+          "pairs_for_source": 0
+        },
+        "why": "distinct destination/port pairs accumulated from one source within the observed rolling time horizon; all inputs are one-way packet metadata"
+      }
+    },
+    "record_sha256": "4084786e2a47d581b2f7278d9426ffe17914ca99899c139a7d471afbde89c4b0",
+    "triage": {
+      "kind": "rule",
+      "label": "Rolling-window port scan against one destination",
+      "summary": "destination/port pairs 20; destinations 1; top-destination pairs 20; rolling horizon (s) 60.0; current-window pairs 10; observed window-end times (stream ...",
+      "facts": [
+        {
+          "label": "Distinct destination/port pairs in rolling history",
+          "value": 20
+        },
+        {
+          "label": "Pairs in current window",
+          "value": 10
+        },
+        {
+          "label": "Distinct destination IPs",
+          "value": 1
+        },
+        {
+          "label": "Pairs on top destination",
+          "value": 20
+        },
+        {
+          "label": "Rolling horizon (s)",
+          "value": 60.0
+        },
+        {
+          "label": "Oldest observed window end (stream seconds)",
+          "value": 610.0
+        },
+        {
+          "label": "Newest observed window end (stream seconds)",
+          "value": 620.0
+        },
+        {
+          "label": "Observed endpoint sample",
+          "value": [
+            {
+              "dst": "198.51.100.70",
+              "dport": 1000,
+              "protocols": [
+                "tcp"
+              ]
+            },
+            {
+              "dst": "198.51.100.70",
+              "dport": 1001,
+              "protocols": [
+                "tcp"
+              ]
+            },
+            {
+              "dst": "198.51.100.70",
+              "dport": 1002,
+              "protocols": [
+                "tcp"
+              ]
+            },
+            {
+              "dst": "198.51.100.70",
+              "dport": 1003,
+              "protocols": [
+                "tcp"
+              ]
+            },
+            {
+              "dst": "198.51.100.70",
+              "dport": 1004,
+              "protocols": [
+                "tcp"
+              ]
+            },
+            {
+              "dst": "198.51.100.70",
+              "dport": 1005,
+              "protocols": [
+                "tcp"
+              ]
+            },
+            {
+              "dst": "198.51.100.70",
+              "dport": 1006,
+              "protocols": [
+                "tcp"
+              ]
+            },
+            {
+              "dst": "198.51.100.70",
+              "dport": 1007,
+              "protocols": [
+                "tcp"
+              ]
+            },
+            {
+              "dst": "198.51.100.70",
+              "dport": 1008,
+              "protocols": [
+                "tcp"
+              ]
+            },
+            {
+              "dst": "198.51.100.70",
+              "dport": 1009,
+              "protocols": [
+                "tcp"
+              ]
+            },
+            {
+              "dst": "198.51.100.70",
+              "dport": 1010,
+              "protocols": [
+                "tcp"
+              ]
+            },
+            {
+              "dst": "198.51.100.70",
+              "dport": 1011,
+              "protocols": [
+                "tcp"
+              ]
+            },
+            {
+              "dst": "198.51.100.70",
+              "dport": 1012,
+              "protocols": [
+                "tcp"
+              ]
+            },
+            {
+              "dst": "198.51.100.70",
+              "dport": 1013,
+              "protocols": [
+                "tcp"
+              ]
+            },
+            {
+              "dst": "198.51.100.70",
+              "dport": 1014,
+              "protocols": [
+                "tcp"
+              ]
+            },
+            {
+              "dst": "198.51.100.70",
+              "dport": 1015,
+              "protocols": [
+                "tcp"
+              ]
+            },
+            {
+              "dst": "198.51.100.70",
+              "dport": 1016,
+              "protocols": [
+                "tcp"
+              ]
+            },
+            {
+              "dst": "198.51.100.70",
+              "dport": 1017,
+              "protocols": [
+                "tcp"
+              ]
+            },
+            {
+              "dst": "198.51.100.70",
+              "dport": 1018,
+              "protocols": [
+                "tcp"
+              ]
+            },
+            {
+              "dst": "198.51.100.70",
+              "dport": 1019,
+              "protocols": [
+                "tcp"
+              ]
+            }
+          ]
+        },
+        {
+          "label": "Endpoint sample truncated",
+          "value": false
+        },
+        {
+          "label": "History evictions",
+          "value": {
+            "source_entries": 0,
+            "pair_entries_total": 0,
+            "pairs_for_source": 0
+          }
+        }
+      ],
+      "caveat": "This rolling fan-out pattern uses one-way packet metadata. Bounded history evictions can make the retained pair count lower than the full observed history; authorized scanners can produce similar patterns.",
+      "next_step": "If a retained capture is available, inspect this source's destination/port pairs and compare with the approved scanner schedule.",
+      "score_label": "Rule score",
+      "related": []
+    }
+  },
+  "provenance_availability": {
+    "capture_identity": "not recorded in alert",
+    "packet_references": "not recorded in alert",
+    "model_artifact_identity": "not recorded in alert",
+    "note": "Unavailable provenance is not inferred from the alert fields."
+  },
+  "integrity": {
+    "algorithm": "SHA-256",
+    "canonicalization": "UTF-8 JSON with sorted keys and compact separators",
+    "scope": "alert.record only",
+    "purpose": "content integrity check",
+    "legal_custody_claim": false
+  }
+}

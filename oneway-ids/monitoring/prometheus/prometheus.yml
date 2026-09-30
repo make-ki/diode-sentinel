@@ -21,8 +21,9 @@ scrape_configs:
   - job_name: nids
     honor_timestamps: false
     static_configs:
-      # sensor on the docker host (run.py --metrics-port 9100)
-      - targets: ["host.docker.internal:9100"]
+      # sensor on this host (run.py --metrics-port 9100); prometheus runs with
+      # host networking, so localhost is the host itself
+      - targets: ["localhost:9100"]
         labels:
           sensor: local
     # Multiple sensors: add a static entry or a file_sd block per host, e.g.

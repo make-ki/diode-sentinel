@@ -12,9 +12,11 @@ import json
 import math
 import os
 import statistics
-from collections import Counter, defaultdict, deque
+from collections import Counter, OrderedDict, defaultdict, deque
 from datetime import datetime, timezone
 
+from core.destination_policy import DestinationPolicy
+from core.source_history import SourceDestinationHistory
 from core import config
 from core.config import (ALLOWLIST, DDOS_MIN_PKT_WINDOW,
                     DDOS_MIN_SPOOF_SRCS, DDOS_SYN_RATIO, SCAN_MIN_PAIRS,
@@ -237,6 +239,10 @@ class FusionEngine:
         src = rec.get("src")
         if not src or src == "*":            # unattributed (spoofed floods)
             return
+        # Operator-sanctioned uploads remain visible but cannot manufacture
+        # a high-confidence incident through noisy-OR with a weak signal.
+        if rec.get("evidence", {}).get("authorised_destination"):
+            return
         conf = rec["confidence"]
         if conf < MIN_FUSE_CONF:
             return
@@ -300,11 +306,16 @@ class DDosDetector:
         ent = shannon_entropy(w["srcs"])
         distinct = len(w["srcs"])
         syn_ratio = w["nsyn"] / w["npkt"]
+        # Keep historical TCP metadata for existing captures/fixtures. For a
+        # UDP-only window report the observed transport accurately.
+        alert_proto = ("udp" if w.get("proto_pkts", {}).get("udp", 0) == w["npkt"]
+                       and w["npkt"] else "tcp")
+        alert_port = 0 if alert_proto == "udp" else 443
         t_end = min(w["t1"], w["t0"] + w["npkt"])  # approx; evidence carries real numbers
 
         if distinct >= DDOS_MIN_SPOOF_SRCS:
             conf = min(0.99, 0.60 + distinct / 5000)
-            self.sink.emit(t_end, "*", "*", 443, "tcp", "ddos_volumetric_spoofed",
+            self.sink.emit(t_end, "*", "*", alert_port, alert_proto, "ddos_volumetric_spoofed",
                            conf, {
                                "window_pkts": w["npkt"],
                                "pkt_rate_per_s": round(w["npkt"] / (w["t1"] - w["t0"]), 1),
@@ -331,21 +342,119 @@ class DDosDetector:
                 top_src, top_cnt = None, 0
             if top_src and distinct < 50 and top_cnt >= 0.5 * max(w["nsyn"], 1):
                 evidence["src_syn_share"] = round(top_cnt / max(w["nsyn"], 1), 2)
-                self.sink.emit(t_end, top_src, "*", 443, "tcp",
+                self.sink.emit(t_end, top_src, "*", alert_port, alert_proto,
                                "ddos_syn_flood", conf, evidence)
             else:
-                self.sink.emit(t_end, "*", "*", 443, "tcp",
+                self.sink.emit(t_end, "*", "*", alert_port, alert_proto,
                                "ddos_syn_flood", conf, evidence)
 
 
-class ScanDetector:
-    """Fan-out: one source touching many (dst,port) pairs in one window."""
+class UdpBurstDetector:
+    """Detect one-way UDP burst/fan-out patterns from observed datagrams.
+
+    Consumes UDP packet and byte counts plus source, destination, and
+    destination-port cardinalities from one window. These are client-side
+    observable features; no response size or amplification is inferred.
+    """
 
     def __init__(self, sink):
         self.sink = sink
 
     def on_window(self, w):
+        duration = max(w["t1"] - w["t0"], 1e-9)
+        for src, packets in w.get("udp_src_packets", {}).items():
+            endpoints = w.get("udp_src_endpoints", {}).get(src, set())
+            if (packets < config.UDP_BURST_MIN_PKTS or
+                    len(endpoints) < config.UDP_FANOUT_MIN_ENDPOINTS):
+                continue
+            dsts = w.get("udp_src_destinations", {}).get(src, set())
+            ports = {port for _, port in endpoints}
+            endpoint_sample = [
+                {"dst": dst, "dport": port, "protocol": "udp"}
+                for dst, port in sorted(endpoints)[:10]
+            ]
+            # This prototype threshold is not calibrated to a production link;
+            # keep confidence moderate and expose the trigger gates as evidence.
+            conf = min(0.89, 0.55 + min(packets / 1000, 0.2)
+                       + min(len(endpoints) / 500, 0.14))
+            self.sink.emit(w["t1"] - 1, src, "*", 0, "udp",
+                           "udp_burst_fanout", conf, {
+                               "protocol": "udp",
+                               "udp_packets": int(packets),
+                               "udp_bytes": int(w.get("udp_src_bytes", {}).get(src, 0)),
+                               "udp_packet_rate_per_s": round(packets / duration, 1),
+                               "distinct_destination_ips": len(dsts),
+                               "distinct_destination_ports": len(ports),
+                               "distinct_destination_endpoints": len(endpoints),
+                               "threshold_min_udp_packets": config.UDP_BURST_MIN_PKTS,
+                               "threshold_min_destination_endpoints": config.UDP_FANOUT_MIN_ENDPOINTS,
+                               "destination_endpoints_sample": endpoint_sample,
+                               "window_s": round(duration, 1),
+                               "why": "high-rate UDP traffic fanned out across "
+                                      "many observed destination endpoints; "
+                                      "response behavior is unavailable on this feed",
+                           })
+
+        # A many-source burst at one endpoint is a separate volumetric symptom.
+        # Source count and packet rate are measured from emitted datagrams only.
+        for (dst, dport), src_counts in w.get("udp_target_src_packets", {}).items():
+            packets = sum(src_counts.values())
+            sources = len(src_counts)
+            if (packets < config.UDP_TARGET_MIN_PKTS or
+                    sources < config.UDP_TARGET_MIN_SRCS):
+                continue
+            conf = min(0.89, 0.60 + min(packets / 5000, 0.15)
+                       + min(sources / 2000, 0.14))
+            self.sink.emit(w["t1"] - 1, "*", dst, dport, "udp",
+                           "udp_target_burst", conf, {
+                               "protocol": "udp",
+                               "udp_packets": int(packets),
+                               "udp_packet_rate_per_s": round(packets / duration, 1),
+                               "distinct_source_ips": sources,
+                               "destination_ip": dst,
+                               "destination_port": dport,
+                               "threshold_min_udp_packets": config.UDP_TARGET_MIN_PKTS,
+                               "threshold_min_source_ips": config.UDP_TARGET_MIN_SRCS,
+                               "window_s": round(duration, 1),
+                               "why": "high-rate UDP datagrams from many visible "
+                                      "sources converged on one endpoint; this does "
+                                      "not establish reflection or amplification",
+                           })
+
+
+class ScanDetector:
+    """One-way fan-out from exact destination/port pairs.
+
+    The default rule scores one window. An optional rolling rule keeps exact
+    source-relative pairs for a bounded time horizon; source, destination,
+    destination port, and observed window times are all passively visible.
+    """
+
+    # The caps bound optional rolling state. Eviction is exposed in alert
+    # evidence because it can only make the retained distinct count smaller.
+    ROLLING_MAX_SOURCES = 4096
+    ROLLING_MAX_PAIRS_PER_SOURCE = 2048
+    ROLLING_ENDPOINT_SAMPLE = 20
+
+    def __init__(self, sink, rolling_window=0):
+        self.sink = sink
+        self.rolling_window = float(rolling_window)
+        if self.rolling_window < 0:
+            raise ValueError("rolling_window cannot be negative")
+        self._rolling_sources = OrderedDict()
+        self._rolling_source_evictions = 0
+        self._rolling_pair_evictions = 0
+
+    def on_window(self, w):
         for src, pairs in w["pairs"].items():
+            endpoints = w.get("pair_endpoints", {})
+            observed = {proto for (dst, port) in pairs
+                        for proto, _ in endpoints.get((src, dst), ())}
+            scan_proto = "udp" if observed == {"udp"} else "tcp"
+            if observed == {"udp"}:
+                pairs = {(dst, port) for (dst, port) in pairs
+                         if any(proto == "udp" and p == port
+                                for proto, p in endpoints.get((src, dst), ()))}
             if len(pairs) < SCAN_MIN_PAIRS:
                 continue
             by_dst = defaultdict(int)
@@ -356,7 +465,7 @@ class ScanDetector:
             scan_type = "vertical" if top_n / len(pairs) >= 0.8 else "horizontal"
             conf = min(0.99, 0.50 + len(pairs) / 1000)
             self.sink.emit(w["t1"] - 1, src, top_dst if scan_type == "vertical" else "*",
-                           "*", "tcp", f"recon_{scan_type}_scan", conf, {
+                           "*", scan_proto, f"recon_{scan_type}_scan", conf, {
                                "distinct_dst_port_pairs": len(pairs),
                                "distinct_dst_ips": len(by_dst),
                                "pairs_on_top_dst": top_n,
@@ -364,6 +473,114 @@ class ScanDetector:
                                "why": "single source fanned out across many "
                                       "destination ports/hosts in one window",
                            })
+
+        if self.rolling_window > 0:
+            self._on_rolling_window(w)
+
+    def _on_rolling_window(self, w):
+        """Score fan-out over an exact bounded horizon, in addition to rules."""
+        now = float(w["t1"])
+        cutoff = now - self.rolling_window
+        pair_endpoints = w.get("pair_endpoints", {})
+
+        for src, raw_pairs in w.get("pairs", {}).items():
+            observed = {proto for (dst, _port) in raw_pairs
+                        for proto, _p in pair_endpoints.get((src, dst), ())}
+            pairs = raw_pairs
+            if observed == {"udp"}:
+                pairs = {(dst, port) for dst, port in raw_pairs
+                         if any(proto == "udp" and p == port
+                                for proto, p in pair_endpoints.get((src, dst), ()))}
+            current_count = len(pairs)
+
+            source_state = self._rolling_sources.get(src)
+            if source_state is None:
+                source_state = {"pairs": OrderedDict(), "alerted": False,
+                                "pair_evictions": 0}
+                self._rolling_sources[src] = source_state
+                if len(self._rolling_sources) > self.ROLLING_MAX_SOURCES:
+                    self._rolling_sources.popitem(last=False)
+                    self._rolling_source_evictions += 1
+            else:
+                self._rolling_sources.move_to_end(src)
+
+            retained = source_state["pairs"]
+            while retained:
+                endpoint, (seen_t, _protocols) = next(iter(retained.items()))
+                if seen_t >= cutoff:
+                    break
+                retained.pop(endpoint)
+            if len(retained) < SCAN_MIN_PAIRS:
+                source_state["alerted"] = False
+
+            for dst, port in pairs:
+                protocols = {proto for proto, observed_port
+                             in pair_endpoints.get((src, dst), ())
+                             if observed_port == port}
+                if not protocols:
+                    protocols = {"tcp"}
+                retained[(dst, port)] = (now, protocols)
+                retained.move_to_end((dst, port))
+                while len(retained) > self.ROLLING_MAX_PAIRS_PER_SOURCE:
+                    retained.popitem(last=False)
+                    source_state["pair_evictions"] += 1
+                    self._rolling_pair_evictions += 1
+
+            rolling_count = len(retained)
+            # The existing detector already reported this window if it has
+            # enough pairs. Mark the rolling episode handled to avoid a second
+            # alert on a smaller following window from the same fan-out.
+            if current_count >= SCAN_MIN_PAIRS:
+                source_state["alerted"] = True
+                continue
+            if rolling_count < SCAN_MIN_PAIRS:
+                source_state["alerted"] = False
+                continue
+            if source_state["alerted"]:
+                continue
+
+            by_dst = defaultdict(int)
+            all_protocols = set()
+            endpoint_protocols = {}
+            for endpoint, (_seen_t, protocols) in retained.items():
+                dst, _port = endpoint
+                by_dst[dst] += 1
+                all_protocols.update(protocols)
+                endpoint_protocols[endpoint] = protocols
+            top_dst, top_n = max(by_dst.items(), key=lambda kv: kv[1])
+            scan_type = ("vertical" if top_n / rolling_count >= 0.8
+                         else "horizontal")
+            scan_proto = "udp" if all_protocols == {"udp"} else "tcp"
+            endpoint_sample = [
+                {"dst": dst, "dport": port,
+                 "protocols": sorted(endpoint_protocols[(dst, port)])}
+                for dst, port in sorted(retained)[:self.ROLLING_ENDPOINT_SAMPLE]
+            ]
+            seen_times = [seen_t for seen_t, _protocols in retained.values()]
+            conf = min(0.99, 0.50 + rolling_count / 1000)
+            self.sink.emit(
+                now - 1, src, top_dst if scan_type == "vertical" else "*",
+                "*", scan_proto, f"recon_rolling_{scan_type}_scan", conf, {
+                    "rolling_window_s": self.rolling_window,
+                    "rolling_distinct_dst_port_pairs": rolling_count,
+                    "current_window_distinct_pairs": current_count,
+                    "distinct_dst_ips": len(by_dst),
+                    "pairs_on_top_dst": top_n,
+                    "oldest_observed_window_end_s": min(seen_times),
+                    "newest_observed_window_end_s": max(seen_times),
+                    "observed_endpoints_sample": endpoint_sample,
+                    "observed_endpoints_truncated": (
+                        rolling_count > self.ROLLING_ENDPOINT_SAMPLE),
+                    "history_evictions": {
+                        "source_entries": self._rolling_source_evictions,
+                        "pair_entries_total": self._rolling_pair_evictions,
+                        "pairs_for_source": source_state["pair_evictions"],
+                    },
+                    "why": "distinct destination/port pairs accumulated from "
+                           "one source within the observed rolling time horizon; "
+                           "all inputs are one-way packet metadata",
+                })
+            source_state["alerted"] = True
 
 
 class ExfilDetector:
@@ -374,14 +591,26 @@ class ExfilDetector:
       - cumulative bytes >= EXFIL_MIN_BYTES, and
       - the source's own median window volume is far below the transfer
         (ratio guard), i.e. this transfer dwarfs the host's normal traffic.
-    One alert per (src,dst) pair.
+    Uses one-way observed addresses, ports, protocol, volume and timing.
+    Operator authorisation demotes a matching transfer; exceeding its volume
+    cap or using another port escalates it. No successful session is inferred.
     """
 
     PAIR_MAX_AGE_WINDOWS = 6
 
-    def __init__(self, sink, history=60):
+    def __init__(self, sink, history=60, policy=None, source_context=False,
+                 source_history_max_age_windows=8640,
+                 source_history_max_entries=50000):
         self.sink = sink
+        self.policy = policy if policy is not None else DestinationPolicy(config.AUTHORISED_DESTINATIONS)
+        self.source_context = bool(source_context)
+        self.source_destinations = (
+            SourceDestinationHistory(max_age_windows=source_history_max_age_windows,
+                                     max_entries=source_history_max_entries)
+            if self.source_context else None)
         self.hist = defaultdict(lambda: deque(maxlen=history))
+        self.endpoints = defaultdict(set)
+        self.demoted = {}
         self.pairs = {}            # (src,dst) -> [first_idx, total_bytes]
         self.alerted = set()
 
@@ -389,16 +618,28 @@ class ExfilDetector:
         # 1) score pairs BEFORE folding this window into baselines
         for (src, dst), b in w["pair_bytes"].items():
             state = self.pairs.get((src, dst))
+            source_novel = False
+            source_coverage = None
+            if self.source_context:
+                # Refresh every observed pair, including established ones,
+                # so expiry describes inactivity rather than admission age.
+                source_novel, source_coverage = self.source_destinations.observe(
+                    src, dst, w["idx"])
             if state is None:
-                # A pair is eligible only when its destination was first
-                # observed in this stream window. This prevents ordinary
-                # traffic to an established destination from being promoted
-                # to "novel" merely because the pair state was not retained.
-                if dst not in w["novel_dsts"]:
-                    continue
-                state = [w["idx"], 0]
+                if self.source_context:
+                    if not source_novel:
+                        continue
+                else:
+                    # Preserve legacy fleet-global behavior exactly unless
+                    # source-relative context was explicitly enabled.
+                    if dst not in w["novel_dsts"]:
+                        continue
+                state = [w["idx"], 0, source_coverage]
                 self.pairs[(src, dst)] = state
+            elif self.source_context:
+                source_coverage = state[2]
             state[1] += b
+            self.endpoints[(src, dst)].update(w.get("pair_endpoints", {}).get((src, dst), ()))
 
             total = state[1]
             age = w["idx"] - state[0]
@@ -406,22 +647,52 @@ class ExfilDetector:
                 continue
             if (src, dst) in self.alerted:
                 continue
-            baseline = statistics.median(self.hist[src]) if self.hist[src] else 0.0
+            baseline = self.demoted.get((src, dst),
+                statistics.median(self.hist[src]) if self.hist[src] else 0.0)
             if baseline > 0 and total < EXFIL_RATIO * baseline:
                 continue
-            self.alerted.add((src, dst))
+            endpoints = self.endpoints[(src, dst)]
+            authorised = self.policy.match(src, dst, endpoints, total)
+            if authorised and (src, dst) in self.demoted:
+                continue
             conf = min(0.99, 0.55 + min(total / max(baseline, 1) / 200, 0.4))
-            self.sink.emit(w["t1"] - 1, src, dst, 8443, "tcp",
-                           "data_exfiltration", conf, {
-                               "bytes_to_new_dst": int(total),
-                               "pair_age_windows": age,
-                               "src_baseline_bytes_median": int(baseline),
-                               "ratio_vs_baseline": round(total / max(baseline, 1), 1),
-                               "novel_destination": True,
-                               "why": "large sustained upload to a never-before-"
-                                      "seen destination, far above the source "
-                                      "host's normal window volume",
-                           })
+            evidence = {
+                "bytes_to_new_dst": int(total),
+                "pair_age_windows": age,
+                "src_baseline_bytes_median": int(baseline),
+                "ratio_vs_baseline": round(total / max(baseline, 1), 1),
+                "novel_destination": True,
+                "why": "large sustained upload to a never-before-"
+                       "seen destination, far above the source "
+                       "host's normal window volume",
+            }
+            if self.source_context:
+                evidence.update(
+                    why="large sustained upload to a destination not observed "
+                        "within this source's retained history lookback, "
+                        "far above its normal observed window volume",
+                    source_novel_within_lookback=True,
+                    source_history_lookback_windows=(
+                        self.source_destinations.max_age_windows),
+                    source_history_coverage_at_admission=source_coverage,
+                    source_history_coverage_now=(
+                        self.source_destinations.coverage_for_source(src)),
+                    fleet_destination_novel=dst in w["novel_dsts"],
+                    source_history=self.source_destinations.coverage,
+                )
+            if authorised:
+                # Freeze the pre-transfer baseline so the authorised upload
+                # cannot raise its own baseline and mask a later violation.
+                self.demoted[(src, dst)] = baseline
+                evidence.update(authorised_destination=True,
+                                original_confidence=round(conf, 3), **authorised)
+                # Medium keeps operator-sanctioned uploads visible for review.
+                conf = min(conf, 0.6)
+            else:
+                self.alerted.add((src, dst))
+            proto, port = next(iter(endpoints)) if len(endpoints) == 1 else ("*", "*")
+            self.sink.emit(w["t1"] - 1, src, dst, port, proto,
+                           "data_exfiltration", conf, evidence)
 
         # 2) fold this window into per-source baselines
         for src, b in w["src_bytes"].items():

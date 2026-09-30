@@ -1,0 +1,8 @@
+import React from 'react';
+import { AbsoluteFill, useCurrentFrame, interpolate, spring, Sequence } from 'remotion';
+import { theme as t } from '../../theme';
+import { product as p } from '../../product-config';
+import { Reveal } from '../../ui';
+import { ProductCamera } from '../../ui/ProductCamera';
+import { Pulse, BrandMark, SceneBase, Heading } from './Shared';
+export const ProductPassive = () => { const f = useCurrentFrame(); return <SceneBase><Heading label={p.passive.label} title={p.passive.title}/><div style={{ position: 'absolute', left: 100, top: 245 }}><ProductCamera clip="sensor" height={310} duration={144}/></div><div style={{ position: 'absolute', left: 130, top: 675, width: 1660 }}><svg width="1660" height="160" viewBox="0 0 1660 160"><defs><linearGradient id="wire"><stop stopColor="#ff8a1f" stopOpacity=".2"/><stop offset=".5" stopColor="#ff8a1f"/><stop offset="1" stopColor="#ff8a1f" stopOpacity=".2"/></linearGradient></defs><path d="M60 80 H1600" stroke="url(#wire)" strokeWidth="2"/><path d="M787 20 L867 80 L787 140 Z M872 20 V140" stroke={t.accent} strokeWidth="3" fill="#090909"/>{Array.from({ length: 7 }, (_, i) => <rect key={i} x={60 + ((f * 8 + i * 224) % 1500)} y="75" width="18" height="10" rx="3" fill={t.accent} opacity=".8"/>)}<path d="M1586 70 L1603 80 L1586 90" stroke={t.accent} strokeWidth="2" fill="none"/></svg><div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 28, fontFamily: t.mono, color: t.muted, marginTop: 30 }}><span>{p.passive.source}</span><span style={{ color: t.accent }}>{p.passive.diode}</span><span>{p.passive.sensor}</span></div></div></SceneBase>; };

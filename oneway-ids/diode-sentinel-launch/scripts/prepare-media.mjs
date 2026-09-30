@@ -1,0 +1,10 @@
+import {existsSync,writeFileSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
+const root=fileURLToPath(new URL('../',import.meta.url));
+const music=existsSync(root+'public/music.mp3');
+writeFileSync(root+'src/assets.generated.ts',`// Generated optional-media manifest.\nexport const assets={music:${music}};\n`);
+const labels=['constraint','positioning','contract','substitution','clock','cnn','replay','models','honesty','messy','closing'];
+const seconds=[0,6,10,22,28,34,37,40,45,51,56];
+const beats={bpm:100,assumption:'Timing grid only; no supplied music was analyzed.',fps:30,durationSeconds:60,beatSeconds:0.6,beats:Array.from({length:101},(_,i)=>({seconds:Number((i*.6).toFixed(3)),frame:i*18})),cuts:labels.map((scene,i)=>({scene,seconds:seconds[i],frame:seconds[i]*30,nearestBeat:Number((Math.round(seconds[i]/.6)*.6).toFixed(3))})),reveals:[{scene:'contract counts',seconds:10.667},{scene:'contract first page',seconds:13},{scene:'contract second page',seconds:16},{scene:'CI gate',seconds:18},{scene:'JA4 substitute',seconds:25.167},{scene:'scored window',seconds:31},{scene:'IoT-23 scorecard',seconds:45.7},{scene:'critical FP',seconds:51.4},{scene:'wordmark',seconds:56.4}]};
+writeFileSync(root+'beats.json',JSON.stringify(beats,null,2)+'\n');
+console.log(music?'Optional music enabled.':'No public/music.mp3: silent render.');

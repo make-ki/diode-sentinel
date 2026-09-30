@@ -39,9 +39,11 @@ CONTRACT = [
          why_impossible=None),
     dict(feature="UDP reflection source-port distribution", ps_class="a",
          status="SUBSTITUTED",
-         consumer=None,
-         substitute="per-source UDP fan-out cardinality, since the reply that "
-                    "would prove amplification never returns",
+         consumer="UdpBurstDetector.on_window -> per-source UDP packet rate "
+                  "and destination endpoint cardinality",
+         substitute="per-source UDP rate and fan-out plus shared-target "
+                    "source/packet counts; the reply that would prove "
+                    "amplification never returns",
          why_impossible="amplification is defined by response size, and the "
                         "response half of the conversation is not on the feed"),
 

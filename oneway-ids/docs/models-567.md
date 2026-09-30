@@ -173,7 +173,7 @@ work; the two that do not are a specific, diagnosable failure, not a vague
   score perfectly. That is the difference between "the model cannot learn this"
   and "the evaluation cannot measure this", and it is worth stating on stage:
   the honest reading of the old table was *unmeasurable*, not *broken*.
-- **Both IsolationForest models are genuinely unfit, and the sweep proves why.**
+- **Both IsolationForest models are unfit as classifiers, and the sweep proves why.**
   They *do* detect every malicious row — but only at thresholds where they also
   fire on a large fraction of benign windows (`scan_iforest`: 19 benign FPs at
   0.9, 6.0% of holdout; `exfil_iforest`: 12 at 0.9, 2.2%). Tighten past that and
@@ -182,15 +182,20 @@ work; the two that do not are a specific, diagnosable failure, not a vague
   correctly ships the quiet point (0.99 / 0.95) and reports recall 0.000 rather
   than hiding a noisy one. Unsupervised anomaly detection on this feature space
   does not separate malicious from merely-unusual benign traffic. The supervised
-  models are the deployable ones; the IsolationForest pair are carried as a
-  measured negative result.
+  models are the deployable ones; the IsolationForest pair are retained only
+  as uncalibrated evidence on an alert from the matching supervised model.
+  They never emit standalone alerts or probabilities. `score_scan` and
+  `score_exfil` accept an optional `rule_corroborated=False` flag; when true,
+  the raw `decision_function` score is attached to an existing supervised
+  alert with `score_kind=uncalibrated_decision_function` and lower scores marked
+  as more anomalous. The pipeline passes this flag only when the corresponding deterministic
+  scan or exfil rule emitted an alert in the same window. Operator-authorised
+  exfil alerts do not qualify.
 
-Consequently the category 6 and 7 models are **shipped as measured-but-not-
-deployable**: they load and score, but the evidence above is what a judge
-should be shown, not a claim that they work. Making them good is open work —
-the plausible route is a capture where each attack class spans the temporal
-split (so the holdout actually contains positives), plus per-source baseline
-weighting for the anomaly models.
+The classifier sweep remains a negative result for the two IsolationForests.
+Their serving role is now ranking evidence, with no extra alert or confidence
+increase. This does not demonstrate improved detection or establish a useful
+outlier threshold; those still need representative held-out traffic.
 
 ## Limitations
 
@@ -198,5 +203,5 @@ weighting for the anomaly models.
 - The packet CNN is a one-way outbound sequence model; return-side packet direction is unavailable by design.
 - The TLS/QUIC model sees metadata only and never decrypts application payloads.
 - XGBoost is an optional dependency (`uv sync --extra ml567`); scikit-learn and joblib are main dependencies.
-- The supervised models (`encrypted_xgb`, `sequence_cnn`, `scan_rf`, `exfil_xgb`) validate at 1.000 recall / 0 benign FP on the temporal holdout, but both **IsolationForest models are measured negative results** (see "Measured holdout results"): no operating point is both sensitive and within the 0.5% benign budget, so they are shipped at their quiet threshold with recall 0.000 rather than at a noisy one. The rule detectors remain the deployable detectors for those classes.
+- The supervised models (`encrypted_xgb`, `sequence_cnn`, `scan_rf`, `exfil_xgb`) validate at 1.000 recall / 0 benign FP on the temporal holdout. Both IsolationForest models remain measured negative results as classifiers: neither has an operating point that is sensitive and within the 0.5% benign budget. In serving, they provide uncalibrated anomaly evidence only when a supervised model alert exists and the caller passes deterministic rule corroboration. The pipeline requires same-window deterministic corroboration.
 - The existing rule detectors remain important for transparent evidence and bounded streaming behavior.

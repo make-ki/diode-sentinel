@@ -122,9 +122,15 @@ class SeqTracker:
         return "in_order"
 
 
-def parse_client_hello(record: bytes):
-    """Parse one complete TLS record; return meta dict if ClientHello."""
+def parse_client_hello(record: bytes, transport: str = "tls"):
+    """Parse one complete ClientHello record and return its TLS/QUIC metadata.
+
+    `transport` selects the JA4 transport prefix (`t` for TLS-over-TCP,
+    `q` for QUIC). The default preserves the existing TLS output exactly.
+    """
     try:
+        if transport not in {"tls", "quic"}:
+            return None
         if len(record) < 11 or record[0] != 0x16:
             return None
         if record[5] != 0x01:                     # handshake type
@@ -199,7 +205,8 @@ def parse_client_hello(record: bytes):
         # GREASE already excluded at append time.
         n_exts = len(ext_types)
 
-        ja4_a = ("t" + _ver2(version) + ("d" if sni else "i")
+        ja4_a = (("q" if transport == "quic" else "t")
+                 + _ver2(version) + ("d" if sni else "i")
                  + f"{min(len(nciphers), 99):02d}"
                  + f"{min(n_exts, 99):02d}"
                  + _alpn_ab(alpn_first))

@@ -76,7 +76,7 @@ check("cmsg_timestamp_empty", _cmsg_timestamp([]) is None)
 
 check("packet_stats_parse",
       _parse_packet_stats(struct.pack("II", 1234, 7)) == (1234, 7))
-check("packet_stats_short", _parse_packet_stats(b"\x01\x02") == (0, 0))
+check("packet_stats_short", _parse_packet_stats(b"\x01\x02") == (None, None))
 
 # deterministic 1-in-N sampler: reproducible subsets, losses accounted
 src = AfPacketSource("lo", sample=4)

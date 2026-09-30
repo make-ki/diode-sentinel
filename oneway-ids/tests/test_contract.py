@@ -40,12 +40,18 @@ SRC = os.path.join(ROOT, "core")
 # business gating test fixtures or the contract file itself.
 GATED_MODULES = (
     "detectors.py",
+    "destination_policy.py",
     "tls_meta.py",
     "quic_meta.py",
     "pipeline.py",
     "pcap_reader.py",
     "live_source.py",
     "metrics.py",
+    "models_567.py",
+    "ml_tier.py",
+    "packet_sequence_cnn.py",
+    "dga_cnn.py",
+    "source_history.py",
 )
 
 

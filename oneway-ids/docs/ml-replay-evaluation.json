@@ -1,0 +1,57 @@
+{
+  "shipped": {
+    "temporal_flow_metrics": {
+      "heldout_benign_flows": 541,
+      "heldout_benign_false_positives": 35,
+      "heldout_benign_false_positive_rate": 0.06469500924214418,
+      "heldout_malicious_detected": 60,
+      "heldout_malicious_flows": 75
+    },
+    "messy_ml_alerts": 79,
+    "messy_benign_ml_alerts": 59
+  },
+  "experiment": {
+    "temporal_flow_metrics": {
+      "heldout_benign_flows": 541,
+      "heldout_benign_false_positives": 2,
+      "heldout_benign_false_positive_rate": 0.0036968576709796672,
+      "heldout_malicious_detected": 60,
+      "heldout_malicious_flows": 75
+    },
+    "messy_ml_alerts": 25,
+    "messy_benign_ml_alerts": 4
+  },
+  "scope": "Synthetic experiment; flow holdout t>=420; complete MESSY replay includes training times. Not external validation.",
+  "selected_benign_sources": [
+    "10.0.0.6",
+    "10.0.0.17",
+    "10.0.0.18",
+    "10.0.0.21"
+  ],
+  "sha256": {
+    "traffic.pcap": "851cb5eb46bdc280b3fa20be6c3a13a84ec31aa6261bb1f3567d43d6a8d0849a",
+    "gen_traffic.py": "b9c35261768b54a1e0f97a86f91d0549d7192bcc4e6c74539dd8a4a0b974de30",
+    "model_ml.txt": "6bd2011ec49972f17de5799eb2ed2f98fdedca14540d20f90d4e99bbfed1a230"
+  },
+  "experiment_training": {
+    "benign_replay_pcap": "/tmp/diode-messy-fixes.pcap",
+    "benign_source_ips": [
+      "10.0.0.17",
+      "10.0.0.18",
+      "10.0.0.21",
+      "10.0.0.6"
+    ],
+    "heldout_benign_false_positive_rate": 0.0036968576709796672,
+    "heldout_benign_false_positives": 2,
+    "heldout_benign_flows": 541,
+    "heldout_malicious_detected": 60,
+    "heldout_malicious_flows": 75,
+    "temporal_split_seconds": 420.0,
+    "test_flows": 616,
+    "test_malicious": 75,
+    "threshold": 0.95,
+    "train_flows": 5123,
+    "train_malicious": 3857,
+    "training_pcap": "/home/stark/sih/oneway-ids/traffic.pcap"
+  }
+}

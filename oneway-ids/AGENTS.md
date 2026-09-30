@@ -76,7 +76,7 @@ relax `requires-python`.
 - Regression gates: `.regression/alerts_rules.reference.jsonl` and
   `alerts_ml.reference.jsonl` must stay **byte-identical**. They are the
   reproducibility claim. They were regenerated against the post-realism
-  generator and re-verified byte-identical for both tiers (45 rules / 67 ML);
+  generator and re-verified byte-identical for both tiers (46 rules / 68 ML);
   the earlier staleness is resolved. Re-verify after any detector or generator
   change.
 
@@ -124,8 +124,8 @@ Results that are NOT true — do not put them on a slide:
   critical FP plus one medium `tls_novel_fingerprint` on designated-benign
   hosts. The rules FP is the honest cost of a one-way exfil detector.
 - **The ML tier collapses under FP pressure** — also verified. On the same
-  MESSY capture `--ml` adds ~74 `ml_flow_suspicious` alerts at confidence 1.0,
-  almost all on benign hosts (IoT telemetry, backup, ordinary browsing). The
+  MESSY capture `--ml` emits 79 `ml_flow_suspicious` alerts, 59 on designated benign hosts
+  on the freshly generated capture (29 September; `docs/ml-replay.md`) (IoT telemetry, backup, ordinary browsing). The
   supervised flow model does not generalise to benign traffic shapes absent
   from its training capture. Never present `--ml` as a robust primary tier;
   it is quorum-gated for this reason.

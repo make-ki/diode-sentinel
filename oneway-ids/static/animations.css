@@ -1,0 +1,207 @@
+/* ==========================================================================
+   Diode Sentinel — motion layer.
+
+   Loaded after app.css. Pure CSS, except for the `.motion-boot` marker that
+   motion.js keeps on <body> for the first render only.
+
+   Why the marker exists: app.js rebuilds #kpis, #alert-rows, #top-sources and
+   #coverage via innerHTML on every 2-second poll. A plain CSS entrance
+   animation on those children would restart on every refresh. `.motion-boot`
+   is present for the first render and then removed, so entrances run once.
+   Everything after that (new-row flash, hover, glows) is event- or
+   state-driven and safe to leave on permanently.
+
+   Rules:
+   - Only transform / opacity / box-shadow / background-color are animated.
+   - No layout property (width, height, top, left, margin) is ever animated.
+   - Durations stay in the 150-500ms range (the two ambient glows loop).
+   - All of it lives under prefers-reduced-motion: no-preference.
+
+   Disable everything at once: add class="no-motion" to <html> (rule below),
+   or delete the <link id="motion-css"> tag — motion.js also checks for it and
+   bails out, so no count-up runs either.
+   ========================================================================== */
+
+/* Kill switch. Kept outside the media query so it always wins. */
+html.no-motion *,
+html.no-motion *::before,
+html.no-motion *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* Keyframes are inert until referenced; keeping them out here avoids
+   duplicating them for light/dark, which share the same --accent vars. */
+@keyframes ds-fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes ds-row-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes ds-new-row {
+  from { background-color: color-mix(in srgb, var(--row-severity, var(--accent)) 16%, transparent); }
+  to   { background-color: transparent; }
+}
+/* Ambient glows: deliberately low intensity. The severity badges are rebuilt
+   on each poll, so their loop restarts ~every 2s; the intensity is kept faint
+   precisely so the restart is not perceptible. */
+@keyframes ds-critical-glow {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50%      { box-shadow: 0 0 6px 0 color-mix(in srgb, var(--sev-critical) 32%, transparent); }
+}
+@keyframes ds-live-breathe {
+  0%, 100% { opacity: 1;  box-shadow: 0 0 0 0 rgba(87, 214, 138, .34); }
+  50%      { opacity: .62; box-shadow: 0 0 0 3px rgba(87, 214, 138, 0); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+
+  /* ---------------------------------------------------------- controls --- */
+  /* Requirement 9: smooth 150ms hover/focus transitions + focus ring. */
+  .btn,
+  .chip,
+  .search,
+  .select,
+  input,
+  .nav-link,
+  .entity {
+    transition:
+      background-color 150ms ease-out,
+      border-color 150ms ease-out,
+      color 150ms ease-out,
+      box-shadow 150ms ease-out;
+  }
+  .btn:focus-visible,
+  .chip:focus-visible,
+  .search:focus-visible,
+  .select:focus-visible,
+  input:focus-visible,
+  .nav-link:focus-visible,
+  .entity:focus-visible {
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent);
+    transition: outline-offset 150ms ease-out, box-shadow 150ms ease-out;
+  }
+
+  /* ------------------------------------------------------------- sidebar --- */
+  /* Requirement 7: hover/active transitions + a real sliding indicator.
+     The indicator is one pseudo-element on <nav>; :has() + nth-child move it
+     to whichever link is active, so it slides instead of cross-fading.
+     --nav-item-h is the nav-link box: 10px padding top/bottom + a ~19.5px
+     line box = 39.5px, rounded to 40px; --nav-item-gap is the 3px margin
+     between links. If .nav-link padding or line-height changes, update this. */
+  .app-nav nav { position: relative; --nav-item-h: 40px; --nav-item-gap: 3px; }
+  @supports selector(:has(*)) {
+    .app-nav nav::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 2px;
+      height: var(--nav-item-h);
+      border-radius: 2px;
+      background: var(--accent);
+      pointer-events: none;
+      transform: translateY(0);
+      transition: transform 220ms ease-out;
+    }
+    .app-nav nav:has(.nav-link:nth-child(2).active)::before {
+      transform: translateY(calc(var(--nav-item-h) + var(--nav-item-gap)));
+    }
+    .app-nav nav:has(.nav-link:nth-child(3).active)::before {
+      transform: translateY(calc((var(--nav-item-h) + var(--nav-item-gap)) * 2));
+    }
+    /* The old static inset bar would double up with the slider. */
+    .nav-link.active { box-shadow: none; }
+  }
+
+  /* ---------------------------------------------------------------- live --- */
+  /* Requirement 8: the green stream dot breathes. .live-pill is never rebuilt,
+     so this loop does not restart on refresh. */
+  .live-pill:not(.paused):not(.down) .live-dot {
+    animation: ds-live-breathe 2.4s ease-in-out infinite;
+  }
+
+  /* --------------------------------------------------------- severity glow --- */
+  /* Requirement 3: only Critical pulses; other severities stay static. */
+  .badge.sev-critical {
+    animation: ds-critical-glow 2.8s ease-in-out infinite;
+  }
+
+  /* ------------------------------------------------------------ entrance --- */
+  /* Requirement 1: stat cards fade up, staggered. One-shot: gated by
+     .motion-boot, which motion.js removes after the first render. */
+  .motion-boot .kpi {
+    animation: ds-fade-up 400ms ease-out backwards;
+  }
+  .motion-boot .kpi:nth-child(1) { animation-delay: 20ms; }
+  .motion-boot .kpi:nth-child(2) { animation-delay: 60ms; }
+  .motion-boot .kpi:nth-child(3) { animation-delay: 100ms; }
+  .motion-boot .kpi:nth-child(4) { animation-delay: 140ms; }
+  .motion-boot .kpi:nth-child(5) { animation-delay: 180ms; }
+  .motion-boot .kpi:nth-child(6) { animation-delay: 220ms; }
+
+  /* Requirement 5: sources fade in with stagger, hover highlight. */
+  .motion-boot .entity {
+    animation: ds-fade-up 400ms ease-out backwards;
+  }
+  .motion-boot .entity:nth-child(1) { animation-delay: 60ms; }
+  .motion-boot .entity:nth-child(2) { animation-delay: 100ms; }
+  .motion-boot .entity:nth-child(3) { animation-delay: 140ms; }
+  .motion-boot .entity:nth-child(4) { animation-delay: 180ms; }
+  .motion-boot .entity:nth-child(5) { animation-delay: 220ms; }
+  .motion-boot .entity:nth-child(6) { animation-delay: 260ms; }
+  .motion-boot .entity:nth-child(7) { animation-delay: 300ms; }
+  .motion-boot .entity:nth-child(8) { animation-delay: 340ms; }
+
+  /* Requirement 6: detection categories fade in with stagger. */
+  .motion-boot .cov-row {
+    animation: ds-fade-up 400ms ease-out backwards;
+  }
+  .motion-boot .cov-row:nth-child(1) { animation-delay: 80ms; }
+  .motion-boot .cov-row:nth-child(2) { animation-delay: 120ms; }
+  .motion-boot .cov-row:nth-child(3) { animation-delay: 160ms; }
+  .motion-boot .cov-row:nth-child(4) { animation-delay: 200ms; }
+  .motion-boot .cov-row:nth-child(5) { animation-delay: 240ms; }
+  .motion-boot .cov-row:nth-child(6) { animation-delay: 280ms; }
+
+  /* Requirement 2: alert rows fade/slide in with a short stagger. Delays stop
+     at row 15; rows 16+ render normally with no animation. Requirement 4
+     (score colour) rides along on the row's opacity. */
+  .motion-boot #alert-rows > tr:nth-child(-n+15) {
+    animation: ds-row-in 400ms ease-out backwards;
+  }
+  .motion-boot #alert-rows > tr:nth-child(1)  { animation-delay: 40ms; }
+  .motion-boot #alert-rows > tr:nth-child(2)  { animation-delay: 70ms; }
+  .motion-boot #alert-rows > tr:nth-child(3)  { animation-delay: 100ms; }
+  .motion-boot #alert-rows > tr:nth-child(4)  { animation-delay: 130ms; }
+  .motion-boot #alert-rows > tr:nth-child(5)  { animation-delay: 160ms; }
+  .motion-boot #alert-rows > tr:nth-child(6)  { animation-delay: 190ms; }
+  .motion-boot #alert-rows > tr:nth-child(7)  { animation-delay: 220ms; }
+  .motion-boot #alert-rows > tr:nth-child(8)  { animation-delay: 250ms; }
+  .motion-boot #alert-rows > tr:nth-child(9)  { animation-delay: 280ms; }
+  .motion-boot #alert-rows > tr:nth-child(10) { animation-delay: 310ms; }
+  .motion-boot #alert-rows > tr:nth-child(11) { animation-delay: 340ms; }
+  .motion-boot #alert-rows > tr:nth-child(12) { animation-delay: 370ms; }
+  .motion-boot #alert-rows > tr:nth-child(13) { animation-delay: 400ms; }
+  .motion-boot #alert-rows > tr:nth-child(14) { animation-delay: 430ms; }
+  .motion-boot #alert-rows > tr:nth-child(15) { animation-delay: 460ms; }
+
+  /* ------------------------------------------------------ refresh-driven --- */
+  /* Requirement 2: genuinely new rows flash, once. The app already adds
+     .is-new (never on first load), so this never collides with the entrance. */
+  #alert-table tbody tr.is-new {
+    animation: ds-new-row 1.1s ease-out;
+  }
+  /* Row hover: background lift + thin accent edge, smoothly. */
+  #alert-table tbody tr {
+    transition: background-color 150ms ease-out, box-shadow 150ms ease-out;
+  }
+  #alert-table tbody tr:hover,
+  #alert-table tbody tr:focus-visible {
+    box-shadow: inset 2px 0 var(--accent);
+  }
+  .entity:hover { transition: background-color 150ms ease-out; }
+}

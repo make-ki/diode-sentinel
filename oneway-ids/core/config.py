@@ -25,6 +25,14 @@ ALLOWLIST = {
 DDOS_MIN_PKT_WINDOW   = 1000      # min packets in a 10s window to consider
 DDOS_MIN_SPOOF_SRCS   = 500       # distinct srcs => spoofed-source flood
 DDOS_SYN_RATIO        = 0.70      # SYN ratio => SYN flood
+# Prototype gate, not a production-calibrated flood rate: 100 packets per
+# default 10s window (10 packets/s) and 20 distinct destination-port endpoints.
+UDP_BURST_MIN_PKTS    = 100
+UDP_FANOUT_MIN_ENDPOINTS = 20
+# Shared-target alerts require a sustained high-volume burst with many visible
+# senders; these counters do not imply reflection or amplification.
+UDP_TARGET_MIN_PKTS   = 1000
+UDP_TARGET_MIN_SRCS   = 50
 SCAN_MIN_PAIRS        = 20        # distinct (dst,port) pairs per src per window
 EXFIL_MIN_BYTES       = 500_000   # min bytes to novel dst in one window
 EXFIL_RATIO           = 10.0      # vs per-src median baseline
@@ -37,8 +45,10 @@ DGA_MIN_DIGIT_RATIO   = 0.05      # ...and ~30% digits; English words have none
 DGA_MIN_STREAK        = 3         # consecutive high-entropy queries from a src
 
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PCAP_PATH   = os.path.join(PROJECT_DIR, "traffic.pcap")
-ALERTS_PATH = os.path.join(PROJECT_DIR, "alerts.jsonl")
+PCAP_PATH   = os.environ.get("DIODESENTINEL_PCAP_PATH",
+                            os.path.join(PROJECT_DIR, "traffic.pcap"))
+ALERTS_PATH = os.environ.get("DIODESENTINEL_ALERTS_PATH",
+                             os.path.join(PROJECT_DIR, "alerts.jsonl"))
 
 # ---- time base: offline replay vs live capture ----------------------------
 # Alert timestamps are rendered as TIME_ANCHOR + t (see detectors._iso).
@@ -128,3 +138,6 @@ DGA_CNN_MIN_STREAK   = 4       # ...after this many consecutive CNN-positive
 # earlier quick-run estimates (0.36/h, 6/8), which is the point of running
 # the whole corpus rather than shipping a 20k-sample guess.
 DGA_CNN_REALERT_SECS = 120.0   # re-alert window per (src, kind)
+
+# Empty by default: only an operator can sanction a destination.
+AUTHORISED_DESTINATIONS = ()

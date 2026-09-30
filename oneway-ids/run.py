@@ -29,6 +29,7 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
 from collections import Counter
 
@@ -43,6 +44,8 @@ from core.live_source import (AfPacketSource, CaptureConfigError,
                          CapturePermissionError, PcapStreamSource,
                          list_interfaces)
 from core.metrics import NidsMetrics
+from core.sensor_health import (atomic_write_json, health_snapshot,
+                                offline_health_snapshot, utc_now)
 
 
 # --------------------------------------------------------------------------
@@ -68,7 +71,8 @@ def _batched(it, n=CAPTURE_BATCH):
 
 def run_stream(read_batch, sink, clock=None, ml_scorer=None,
                tls_state_path=None, live=False, processor=None,
-               on_tick=None, idle_limit=None, dga_cnn=None, models567=None):
+               on_tick=None, idle_limit=None, dga_cnn=None, models567=None,
+               source_context=False, rolling_scan=False):
     """Drive a StreamProcessor over batches of packet tuples.
 
     clock:        callable -> stream-relative seconds. None means "use packet
@@ -81,7 +85,9 @@ def run_stream(read_batch, sink, clock=None, ml_scorer=None,
     proc = processor or StreamProcessor(sink, ml_scorer,
                                         tls_state_path=tls_state_path,
                                         dga_cnn=dga_cnn,
-                                        models567=models567)
+                                        models567=models567,
+                                        source_context=source_context,
+                                        rolling_scan=rolling_scan)
     wall0 = time.perf_counter()
     idle = 0
     last_t = 0.0
@@ -114,7 +120,8 @@ def run_stream(read_batch, sink, clock=None, ml_scorer=None,
 
 
 def run_pipeline(packets, sink, ml_scorer=None, tls_state_path=None,
-                 dga_cnn=None, models567=None, metrics=None):
+                 dga_cnn=None, models567=None, metrics=None,
+                 source_context=False, rolling_scan=False):
     """Offline replay of a packet iterable (named entry point for parity).
 
     Passing tls_state_path opts into a warm replay: the stored JA4 inventory
@@ -122,7 +129,9 @@ def run_pipeline(packets, sink, ml_scorer=None, tls_state_path=None,
     byte-identical to the original prototype.
     """
     proc = StreamProcessor(sink, ml_scorer, tls_state_path=tls_state_path,
-                           dga_cnn=dga_cnn, models567=models567)
+                           dga_cnn=dga_cnn, models567=models567,
+                           source_context=source_context,
+                           rolling_scan=rolling_scan)
     if metrics is not None:
         metrics.observe_processor(proc)
     if tls_state_path:
@@ -139,7 +148,8 @@ def run_pipeline(packets, sink, ml_scorer=None, tls_state_path=None,
 def run_live(iface, sink, ml_scorer=None, state_path=STATE_PATH,
              sample=LINE_RATE_SAMPLE, duration=None, source=None, clock=None,
              batch=CAPTURE_BATCH, idle_limit=None, verbose=True, on_tick=None,
-             dga_cnn=None, models567=None, metrics=None, on_source=None):
+             dga_cnn=None, models567=None, metrics=None, on_source=None,
+             source_context=False, rolling_scan=False):
     """Live capture driver.
 
     source and clock are injectable so the live code path can be exercised and
@@ -147,15 +157,63 @@ def run_live(iface, sink, ml_scorer=None, state_path=STATE_PATH,
     on_tick(proc) observes the pipeline after each batch (tests use it to prove
     an alert fired during the capture rather than only at finish).
     """
-    if source is None:
+    created_source = source is None
+    if created_source:
         source = AfPacketSource(iface, sample=sample, batch=batch)
-        source.open()
+    mode = "pcap_stream" if isinstance(source, PcapStreamSource) else "interface"
+    started_at = utc_now()
+    t0 = [time.perf_counter()]
+    proc_ref = [None]
+    health_state = ["active"]
+    def publish_health(status, error=None):
+        health = health_snapshot(source, status=status, mode=mode,
+                                started_at=started_at, error=error)
+        current = (_stats_view(proc_ref[0], time.perf_counter() - t0[0])
+                   if proc_ref[0] is not None else {})
+        _write_sidecar("live", current, health=health)
+    # Keep the heartbeat independent of packet arrival, including a stalled
+    # FIFO open/read. Dashboard freshness therefore reflects the runner.
+    health_stop = threading.Event()
+    def heartbeat():
+        while not health_stop.wait(1.0):
+            publish_health(health_state[0])
+    health_thread = threading.Thread(target=heartbeat, daemon=True)
+    health_thread.start()
+    def terminate_health(status, error=None):
+        health_state[0] = status
+        health_stop.set()
+        health_thread.join(timeout=2)
+        publish_health(status, error)
+        close = getattr(source, "close", None)
+        if close is not None:
+            close()
+    def guarded_setup(fn):
+        try:
+            return fn()
+        except KeyboardInterrupt:
+            terminate_health("stopped")
+            raise
+        except BaseException as exc:
+            terminate_health("failed", f"{type(exc).__name__}: {exc}")
+            raise
+    # Publish before opening so configuration/permission failures are visible.
+    publish_health("active")
+    try:
+        if created_source or (isinstance(source, PcapStreamSource)
+                              and source._fd is None):
+            source.open()
+    except KeyboardInterrupt:
+        terminate_health("stopped")
+        raise
+    except BaseException as exc:
+        terminate_health("failed", f"{type(exc).__name__}: {exc}")
+        raise
 
-    anchor = source.anchor
-    config.set_time_anchor(anchor)      # alerts now carry real wall-clock time
+    anchor = guarded_setup(lambda: source.anchor)
+    guarded_setup(lambda: config.set_time_anchor(anchor))
 
     if on_source is not None:
-        on_source(source)               # metrics: attach socket/drop stats
+        guarded_setup(lambda: on_source(source))  # metrics: attach socket/drop stats
 
     # Which clock drives the stream: an injected one (tests), the source's own
     # (socket = wall clock; pcap stream = wall clock if live, else the stream's
@@ -163,7 +221,7 @@ def run_live(iface, sink, ml_scorer=None, state_path=STATE_PATH,
     if clock is not None:
         stream_clock = lambda: clock() - anchor
     else:
-        stream_clock = (source.default_clock()
+        stream_clock = (guarded_setup(source.default_clock)
                         if hasattr(source, "default_clock")
                         else lambda: time.time() - anchor)
     # A None stream_clock means "advance with packet timestamps" (archive
@@ -171,11 +229,15 @@ def run_live(iface, sink, ml_scorer=None, state_path=STATE_PATH,
     # ahead of the packets being processed.
 
     state_path = state_path or None
-    proc = StreamProcessor(sink, ml_scorer, tls_state_path=state_path,
-                           dga_cnn=dga_cnn, models567=models567)
+    proc = guarded_setup(lambda: StreamProcessor(
+        sink, ml_scorer, tls_state_path=state_path,
+        dga_cnn=dga_cnn, models567=models567,
+        source_context=source_context, rolling_scan=rolling_scan))
+    proc_ref[0] = proc
     if metrics is not None:
-        metrics.observe_processor(proc)   # scrapeable from the first tick
-    warmed = proc.tls.load_state(state_path) if state_path else False
+        guarded_setup(lambda: metrics.observe_processor(proc))
+    warmed = (guarded_setup(lambda: proc.tls.load_state(state_path))
+              if state_path else False)
     if verbose:
         if warmed:
             print(f"warm start: {len(proc.tls.inv_global)} JA4 fingerprints "
@@ -210,11 +272,9 @@ def run_live(iface, sink, ml_scorer=None, state_path=STATE_PATH,
             return
         next_save[0] = proc.last_flush_t + STATE_SAVE_EVERY
         proc.tls.save_state(state_path)
-        _write_sidecar("live", _stats_view(proc, time.perf_counter() - t0[0]))
     if metrics is not None:
-        metrics.observe_processor(proc)   # keep scrape views fresh
+        guarded_setup(lambda: metrics.observe_processor(proc))
 
-    t0 = [time.perf_counter()]
     interrupted = False
     try:
         stats = run_stream(read_batch, sink, clock=stream_clock,
@@ -222,14 +282,24 @@ def run_live(iface, sink, ml_scorer=None, state_path=STATE_PATH,
                            idle_limit=idle_limit)
     except KeyboardInterrupt:
         interrupted = True
+        health_state[0] = "stopped"
         stats = proc.finish()
         stats["wall"] = time.perf_counter() - t0[0]
+    except BaseException as exc:
+        terminate_health("failed", f"{type(exc).__name__}: {exc}")
+        raise
 
     if state_path:
-        proc.tls.save_state(state_path)
-    _write_sidecar("live", stats)
-
+        guarded_setup(lambda: proc.tls.save_state(state_path))
     snap = source.snapshot() if hasattr(source, "snapshot") else {}
+    completed = bool(getattr(source, "eof", False)) and not interrupted
+    final_status = "completed" if completed else "stopped"
+    health_state[0] = final_status
+    health_stop.set()
+    health_thread.join(timeout=2)
+    _write_sidecar("live", stats, health=health_snapshot(
+        source, status=final_status, mode=mode, started_at=started_at))
+
     close = getattr(source, "close", None)
     if close is not None:
         close()
@@ -291,8 +361,10 @@ def _print_live_report(sink, s, snap, warmed, state_path, interrupted):
     print(f"non-TCP/UDP IPv4 frames    : {snap.get('other_ip', 0):,}"
           f"  (ICMP/GRE/ESP -- no detector consumes these)")
     print(f"malformed frames           : {snap.get('malformed', 0):,}")
-    print(f"kernel socket drops        : {snap.get('kernel_dropped', 0):,}")
-    if snap.get("kernel_dropped"):
+    drops = snap.get("kernel_dropped")
+    print("kernel socket drops        : " +
+          (f"{drops:,}" if drops is not None else "unavailable"))
+    if drops:
         print("                             ^ traffic LOST before analysis -- "
               "raise SO_RCVBUF or increase --sample")
     print(f"packets processed          : {s['npkt']:,}")
@@ -309,17 +381,18 @@ def _print_live_report(sink, s, snap, warmed, state_path, interrupted):
               f"(warm start: {'yes' if warmed else 'no'})")
 
 
-def _write_sidecar(parser_name, s):
+def _write_sidecar(parser_name, s, health=None):
     """Dashboard sidecar: the suppressed count is not in alerts.jsonl."""
     try:
-        with open(os.path.join(os.path.dirname(ALERTS_PATH) or ".",
-                               "run_stats.json"), "w") as fh:
-            json.dump({"suppressed": s["suppressed"],
+        payload = {"suppressed": s.get("suppressed", 0),
                        "parser": parser_name,
-                       "pkt_per_s": round(s["npkt"] / s["wall"]),
-                       "alerts": s["n_alerts"],
-                       "mode": "live" if parser_name == "live" else "replay"},
-                      fh)
+                       "pkt_per_s": round(s.get("npkt", 0) / max(s.get("wall", 1), 1e-9)),
+                       "alerts": s.get("n_alerts", 0),
+                       "mode": "live" if parser_name == "live" else "replay"}
+        if health is not None:
+            payload["health"] = health
+        atomic_write_json(os.path.join(os.path.dirname(ALERTS_PATH) or ".",
+                                       "run_stats.json"), payload)
     except OSError:
         pass
 
@@ -382,7 +455,7 @@ def load_models567(manifest_path):
 def main(pcap_path=PCAP_PATH, parity=False, ml_model=None, live=None,
          pipe=None, state_path=None, sample=LINE_RATE_SAMPLE, duration=None,
          no_state=False, dga_model=None, models567_manifest=None,
-         metrics_port=None):
+         metrics_port=None, source_context=False, rolling_scan=False):
     dga_cnn = load_dga_cnn(dga_model)
     models567 = load_models567(models567_manifest)
     if live or pipe:
@@ -396,13 +469,14 @@ def main(pcap_path=PCAP_PATH, parity=False, ml_model=None, live=None,
         target = pipe or live
         try:
             source = PcapStreamSource(pipe, sample=sample,
-                                      timeout=CAPTURE_TIMEOUT).open() \
+                                      timeout=CAPTURE_TIMEOUT) \
                 if pipe else None
             run_live(target, sink, ml_scorer=scorer, source=source,
                      state_path=None if no_state else (state_path or STATE_PATH),
                      sample=sample, duration=duration, dga_cnn=dga_cnn,
                      models567=models567, metrics=metrics,
-                     on_source=metrics.observe_source)
+                     on_source=metrics.observe_source,
+                     source_context=source_context, rolling_scan=rolling_scan)
         except (CaptureConfigError, CapturePermissionError) as e:
             print(f"[error] {e}", file=sys.stderr)
             return 2
@@ -411,7 +485,12 @@ def main(pcap_path=PCAP_PATH, parity=False, ml_model=None, live=None,
     backends = [("dpkt", iter_dpkt), ("scapy", iter_scapy)] if parity \
         else [best_reader()]
     reports = {}
+    alert_outputs = {}
     for name, reader in backends:
+        # Serving bundles retain deduplication/history. Each parser must
+        # receive a fresh bundle or a parity run compares different state.
+        if parity:
+            models567 = load_models567(models567_manifest)
         sink = AlertSink()
         scorer = load_scorer(sink, ml_model)
         metrics = NidsMetrics(sink)
@@ -420,22 +499,31 @@ def main(pcap_path=PCAP_PATH, parity=False, ml_model=None, live=None,
                   f"(Prometheus scrape endpoint)")
             metrics.serve(metrics_port)
         try:
+            replay_started = utc_now()
             reports[name] = run_pipeline(reader(pcap_path), sink, scorer,
                                          tls_state_path=state_path,
                                          dga_cnn=dga_cnn,
                                          models567=models567,
-                                         metrics=metrics)
+                                         metrics=metrics,
+                                         source_context=source_context,
+                                         rolling_scan=rolling_scan)
         except ImportError:
             print(f"[skip] {name} not installed")
             continue
         _print_report(name, reports[name])
+        if parity:
+            with open(sink.path, "rb") as alert_file:
+                alert_outputs[name] = alert_file.read()
         print(f"full alert log: {ALERTS_PATH}")
-        _write_sidecar(name, reports[name])
+        _write_sidecar(name, reports[name], health=offline_health_snapshot(
+            reports[name], pcap_path, started_at=replay_started))
     if len(reports) == 2:
         a, b = reports["dpkt"]["by_class"], reports["scapy"]["by_class"]
         print("-" * 64)
-        print("PARITY CHECK:", "IDENTICAL" if a == b else f"DIVERGED\n {a}\n {b}")
-        if a != b:
+        identical = a == b and alert_outputs["dpkt"] == alert_outputs["scapy"]
+        print("PARITY CHECK:", "IDENTICAL (complete alert records)" if identical
+              else f"DIVERGED (complete alert records)\n {a}\n {b}")
+        if not identical:
             raise SystemExit(1)
     return 0
 
@@ -464,6 +552,14 @@ def _cli(argv=None):
                    help="stop live capture after SECS of stream time")
     p.add_argument("--parity", action="store_true",
                    help="assert dpkt and scapy readers agree (offline only)")
+    p.add_argument("--authorised-destinations", metavar="JSON",
+                   help="offline operator registry for sanctioned transfers")
+    p.add_argument("--source-context", action="store_true",
+                   help="use bounded per-source destination history for "
+                        "exfiltration indicators (opt-in; rules tier)")
+    p.add_argument("--rolling-scan", action="store_true",
+                   help="also detect scan fan-out across a bounded 60-second "
+                        "rolling horizon (opt-in; rules tier)")
     p.add_argument("--ml", action="store_true",
                    help="enable the Tier-2 LightGBM flow scorer")
     p.add_argument("--dga-cnn", action="store_true", dest="dga_cnn",
@@ -492,6 +588,16 @@ def _looks_like_path(name):
 
 def _run_cli(argv=None):
     args = _cli(argv).parse_args(argv)
+    if args.authorised_destinations:
+        from core.destination_policy import DestinationPolicy
+        try:
+            policy = DestinationPolicy.load(args.authorised_destinations)
+        except (OSError, ValueError, TypeError) as exc:
+            print(f"[error] invalid destination registry: {exc}", file=sys.stderr)
+            return 2
+        config.AUTHORISED_DESTINATIONS = tuple(row for row, _, _ in policy.entries)
+    else:
+        config.AUTHORISED_DESTINATIONS = ()
     if args.list_interfaces:
         names = list_interfaces()
         print("\n".join(names) if names else "(no interfaces found)")
@@ -520,7 +626,9 @@ def _run_cli(argv=None):
                 no_state=args.no_state,
                 dga_model="model_dga_cnn.npz" if args.dga_cnn else None,
                 models567_manifest=args.models_567,
-                metrics_port=args.metrics_port)
+                metrics_port=args.metrics_port,
+                source_context=args.source_context,
+                rolling_scan=args.rolling_scan)
 
 
 if __name__ == "__main__":

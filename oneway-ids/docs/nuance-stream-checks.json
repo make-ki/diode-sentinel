@@ -1,0 +1,15 @@
+{
+  "continuous_flow": {
+    "observed_seconds": 60,
+    "idle_timeout_seconds": 2.0,
+    "closed_before_end": 0,
+    "active_flows": 1
+  },
+  "novelty_scope": {
+    "source_1": [
+      "198.51.100.2"
+    ],
+    "source_2_same_destination_next_window": [],
+    "interpretation": "Current novelty is stream-global, not per-source."
+  }
+}

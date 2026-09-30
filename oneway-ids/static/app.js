@@ -10,49 +10,29 @@
 const POLL_MS = 2000;
 const SEVERITIES = ['critical', 'high', 'medium', 'low'];
 
-/* Class -> colour and label. Colours are grouped by PS class so related
-   detections read as one family in the mix chart. */
-const CLASS_COLOR = {
-  ddos_volumetric_spoofed: '#ff4d6d',
-  ddos_syn_flood:          '#ff8095',
-  c2_beaconing:            '#ffab4a',
-  dga_domain:              '#ffd166',
-  tls_known_malware:       '#4ac7ff',
-  tls_novel_fingerprint:   '#8fd8ff',
-  recon_vertical_scan:     '#8b7dfb',
-  recon_horizontal_scan:   '#b0a6ff',
-  data_exfiltration:       '#57d9a3',
-  confirmed_exfiltration:  '#c084fc',
-  confirmed_c2_implant:    '#d6aaff',
-  botnet_c2_with_dga:      '#e8c6ff',
-  multi_signal_fusion:     '#b39ddb',
-  ml_flow_suspicious:      '#2dd4bf',
-};
-
 const CLASS_LABEL = {
+  udp_burst_fanout:        'UDP burst across destinations',
+  udp_target_burst:        'UDP burst at one destination',
   ddos_volumetric_spoofed: 'DDoS volumetric (spoofed)',
   ddos_syn_flood:          'DDoS SYN flood',
   c2_beaconing:            'C2 beaconing',
-  dga_domain:              'DGA / DNS tunnelling',
-  tls_known_malware:       'TLS/QUIC known malware',
+  dga_domain:              'DGA domain',
+  dns_tunneling:          'DNS tunnelling',
+  encrypted_session_malware: 'Encrypted-session anomaly',
+  recon_model_scan:       'Reconnaissance model',
+  data_exfiltration_model: 'Exfiltration model',
+  tls_known_malware:       'TLS local indicator match',
   tls_novel_fingerprint:   'TLS/QUIC novel fingerprint',
   recon_vertical_scan:     'Recon vertical scan',
   recon_horizontal_scan:   'Recon horizontal scan',
+  recon_rolling_vertical_scan: 'Rolling recon · one destination',
+  recon_rolling_horizontal_scan: 'Rolling recon · many destinations',
   data_exfiltration:       'Data exfiltration',
-  confirmed_exfiltration:  'FUSED · confirmed exfiltration',
-  confirmed_c2_implant:    'FUSED · confirmed C2 implant',
-  botnet_c2_with_dga:      'FUSED · botnet C2 with DGA',
-  multi_signal_fusion:     'FUSED · multi-signal',
-  ml_flow_suspicious:      'ML tier · suspicious flow',
-};
-
-const CLASS_PS = {
-  ddos_volumetric_spoofed: 'a', ddos_syn_flood: 'a',
-  c2_beaconing: 'b',
-  dga_domain: 'c',
-  tls_known_malware: 'd', tls_novel_fingerprint: 'd',
-  recon_vertical_scan: 'e', recon_horizontal_scan: 'e',
-  data_exfiltration: 'f',
+  confirmed_exfiltration:  'Correlated transfer signals',
+  confirmed_c2_implant:    'Correlated TLS and periodicity',
+  botnet_c2_with_dga:      'Correlated periodicity and DNS',
+  multi_signal_fusion:     'multi-signal',
+  ml_flow_suspicious:      'Suspicious flow',
 };
 
 const FUSED_CLASSES = new Set(['confirmed_exfiltration', 'confirmed_c2_implant',
@@ -62,6 +42,11 @@ const state = {
   severity: new Set(),
   cls: new Set(),
   q: '',
+  source: '',
+  kind: '',
+  from: '',
+  to: '',
+  sort: 'newest',
   limit: 400,
   paused: false,
   firstLoad: true,
@@ -71,6 +56,7 @@ const state = {
 
 let timelineChart = null;
 let mixChart = null;
+let mixClasses = [];
 
 /* ------------------------------------------------------------- helpers --- */
 
@@ -89,7 +75,6 @@ function cssVar(name, fallback) {
 }
 
 const sevColor = (sev) => cssVar('--sev-' + sev, '#8fa3c8');
-const classColor = (cls) => CLASS_COLOR[cls] || '#8fa3c8';
 const classLabel = (cls) => CLASS_LABEL[cls] || String(cls).replace(/_/g, ' ');
 
 function fmtInt(n) {
@@ -156,7 +141,7 @@ function initCharts() {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      animation: { duration: 320 },
+      animation: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: {
@@ -179,23 +164,26 @@ function initCharts() {
   });
 
   mixChart = new Chart($('mix-chart'), {
-    type: 'doughnut',
-    data: { labels: [], datasets: [{
-      data: [], backgroundColor: [], borderWidth: 0, hoverOffset: 6,
-    }] },
+    type: 'bar',
+    data: { labels: [], datasets: [{ data: [], backgroundColor: cssVar('--accent'),
+      borderRadius: 2, maxBarThickness: 12 }] },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      cutout: '60%',
-      animation: { duration: 320 },
-      plugins: {
-        legend: {
-          position: 'right',
-          labels: { boxWidth: 9, boxHeight: 9, usePointStyle: true,
-                    pointStyle: 'circle', padding: 9, color: cssVar('--muted'),
-                    font: { size: 10.5 } },
-        },
-        tooltip: chartTheme().tooltip,
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      onClick: (event, elements) => {
+        if (!elements.length) return;
+        const cls = mixClasses[elements[0].index];
+        state.cls = new Set([cls]);
+        $('class-select').value = cls;
+        poll();
+        $('alerts').scrollIntoView({ block: 'start' });
+      },
+      animation: false,
+      plugins: { legend: { display: false }, tooltip: chartTheme().tooltip },
+      scales: {
+        x: { beginAtZero: true, grid: { color: cssVar('--line') },
+             ticks: { color: cssVar('--dim'), precision: 0 }, border: { display: false } },
+        y: { grid: { display: false }, ticks: { color: cssVar('--muted'), font: { size: 10 } },
+             border: { display: false } },
       },
     },
   });
@@ -214,7 +202,10 @@ function restyleCharts() {
     timelineChart.update('none');
   }
   if (mixChart) {
-    mixChart.options.plugins.legend.labels.color = theme.text;
+    mixChart.data.datasets[0].backgroundColor = cssVar('--accent');
+    mixChart.options.scales.x.grid.color = theme.grid;
+    mixChart.options.scales.x.ticks.color = theme.text;
+    mixChart.options.scales.y.ticks.color = theme.text;
     mixChart.update('none');
   }
 }
@@ -228,17 +219,32 @@ function sensorItem(label, value, cls) {
 
 function renderSensor(stats) {
   const s = stats.sensor || {};
+  const h = s.health || {};
+  const counts = h.counts || {};
+  const count = (key) => counts[key] == null ? 'Unknown' : fmtInt(counts[key]);
+  const state = h.status || 'unknown';
+  const mode = {interface: 'Interface capture', pcap_stream: 'Packet stream', offline: 'Offline replay'}[h.mode];
+  const states = {active: 'Active', idle: 'Idle · waiting for packets', completed: 'Completed',
+    stopped: 'Stopped', failed: 'Failed', stale: 'Stale · heartbeat missing', unknown: 'Unknown', starting: 'Starting'};
   const items = [
-    sensorItem('mode', s.mode || 'unknown',
-               s.mode === 'live' ? 'ok' : ''),
-    sensorItem('parser', s.parser || 'n/a'),
-    sensorItem('throughput', s.pkt_per_s ? fmtInt(s.pkt_per_s) + ' pkt/s' : '—'),
-    sensorItem('hosts', fmtInt(stats.hosts)),
-    sensorItem('span', fmtSpan(stats.span_seconds)),
-    sensorItem('last alert', fmtClock(stats.last_alert)),
-    sensorItem('allowlist', fmtInt(stats.suppressed) + ' suppressed', 'ok'),
+    sensorItem('Sensor', states[state] || 'Unknown', ['stale', 'failed', 'stopped'].includes(state) ? 'warn' : ''),
+    sensorItem('Mode', mode || h.mode || s.mode || 'Unknown'),
+    sensorItem('Source', h.interface || h.path || 'Unknown'),
+    sensorItem('Last packet received · UTC', h.last_packet_at ? fmtClock(h.last_packet_at) : 'Not observed'),
+    sensorItem('Heartbeat', h.heartbeat_age_seconds == null ? 'Unknown' : h.heartbeat_age_seconds + 's ago'),
+    sensorItem('Seen', count('seen')),
+    sensorItem('Analyzed', count('analyzed')),
+    sensorItem('Sampled out', count('sampled_out')),
+    sensorItem('Malformed', count('malformed')),
+    sensorItem('Kernel drops', count('kernel_drops'), counts.kernel_drops > 0 ? 'warn' : ''),
   ];
+  if (h.error) items.push(sensorItem('Error', h.error, 'warn'));
   $('sensor-strip').innerHTML = items.join('');
+  $('demo-notice').hidden = !stats.synthetic_demo;
+  $('capture-range').textContent = stats.first_alert
+    ? stats.first_alert.slice(0, 10) + ' · ' + fmtClock(stats.first_alert) + ' – ' + (stats.last_alert?.slice(0, 10) !== stats.first_alert.slice(0, 10)
+      ? stats.last_alert?.slice(0, 10) + ' ' : '') + fmtClock(stats.last_alert)
+    : 'No alerts recorded';
 }
 
 function kpiCard(label, value, color, ratio, sub) {
@@ -252,25 +258,20 @@ function kpiCard(label, value, color, ratio, sub) {
 }
 
 function renderKpis(stats) {
-  const total = stats.total || 0;
-  const covered = (stats.coverage || []).filter((c) => c.count > 0).length;
-  const psTotal = (stats.coverage || []).length || 6;
-  const share = (n) => (total ? n / total : 0);
-  $('kpis').innerHTML = [
-    kpiCard('Alerts', fmtInt(total), cssVar('--accent', '#6ea8fe'), 1,
-            total ? 'since ' + fmtClock(stats.first_alert) : 'no alerts yet'),
-    kpiCard('Critical', fmtInt(stats.critical), sevColor('critical'),
-            share(stats.critical), 'confidence ≥ 0.90'),
-    kpiCard('High', fmtInt(stats.high), sevColor('high'),
-            share(stats.high), 'confidence 0.70 – 0.89'),
-    kpiCard('Medium', fmtInt(stats.medium), sevColor('medium'),
-            share(stats.medium), 'confidence 0.50 – 0.69'),
-    kpiCard('PS coverage', covered + ' / ' + psTotal, cssVar('--fused', '#c084fc'),
-            psTotal ? covered / psTotal : 0, 'threat classes with a detection'),
-    kpiCard('Allowlisted', fmtInt(stats.suppressed), sevColor('low'),
-            total ? Math.min(1, stats.suppressed / (total + stats.suppressed)) : 0,
-            'Tier-0 suppressed events'),
-  ].join('');
+  const counts = stats.signals || {};
+  const cards = [
+    ['Rule signals', counts.rule_records, 'Deterministic detector records'],
+    ['Critical rule signals', counts.critical_rule_records, 'Subset of rule signals'],
+    ['Model signals', counts.model_records, 'Model-led alerts; not certainty'],
+    ['Correlations', counts.correlation_records, 'Derived from other signals'],
+    ['Sources with alerts', counts.source_count, 'Excludes unattributed records'],
+    ['Authorised transfers', counts.authorised_records, 'Registry-matched alert records'],
+  ];
+  $('kpis').innerHTML = cards.map(([label, count, note]) =>
+    kpiCard(label, count == null ? '—' : fmtInt(count), cssVar('--text'), 0, note)).join('');
+  $('signal-scope').textContent = fmtInt(stats.total) + ' total records across the loaded feed' +
+    (counts.unknown_records ? ' · ' + fmtInt(counts.unknown_records) + ' unclassified' : '') +
+    '. Correlations reuse detector evidence; these counts are not unique incidents. Scores are not calibrated probabilities of compromise.';
 }
 
 function renderTimeline(timeline) {
@@ -288,37 +289,42 @@ function renderTimeline(timeline) {
 function renderMix(stats) {
   if (!mixChart) return;
   const byClass = stats.by_class || {};
-  const entries = Object.entries(byClass).sort((a, b) => b[1] - a[1]);
+  const entries = Object.entries(byClass).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  mixClasses = entries.map(([cls]) => cls);
   mixChart.data.labels = entries.map(([cls]) => classLabel(cls));
   mixChart.data.datasets[0].data = entries.map(([, n]) => n);
-  mixChart.data.datasets[0].backgroundColor = entries.map(([cls]) => classColor(cls));
+  mixChart.data.datasets[0].backgroundColor = cssVar('--accent');
   mixChart.update();
   $('mix-hint').textContent = entries.length
-    ? entries.length + ' classes · ' + stats.total + ' alerts'
+    ? 'All records · select a bar to filter'
     : 'by threat class';
 }
 
 function confCell(a) {
-  const conf = Number(a.confidence || 0);
-  const color = sevColor(a.severity);
-  return '<span class="conf" style="color:' + color + '">' +
+  if (a.confidence == null || !Number.isFinite(Number(a.confidence))) return '<span class="conf">—</span>';
+  const conf = Number(a.confidence);
+  return '<span class="conf">' +
     '<span class="conf-track"><i style="width:' + (conf * 100).toFixed(0) + '%"></i></span>' +
     conf.toFixed(2) + '</span>';
 }
 
-function classCell(cls) {
-  const tag = FUSED_CLASSES.has(cls) ? '<span class="tag">FUSED</span>'
-            : cls === 'ml_flow_suspicious' ? '<span class="tag ml">ML</span>' : '';
-  const ps = CLASS_PS[cls] ? ' <span class="mono" style="color:var(--dim)">(' + CLASS_PS[cls] + ')</span>' : '';
-  return esc(classLabel(cls)) + ps + tag;
+function classCell(cls, triage) {
+  const kind = triage?.kind || (FUSED_CLASSES.has(cls) ? 'correlation' : 'unknown');
+  return '<span class="detection-name">' + esc(triage?.label || classLabel(cls)) + '</span>' +
+    '<span class="tag ' + (kind === 'model' ? 'ml' : '') + '">' + esc(kind) + '</span>';
 }
 
+function bodyKey() { return document.activeElement?.closest('#alert-rows tr')?.dataset.key; }
+
 function renderTable(data) {
-  const rows = (data.alerts || []).slice().reverse();   // newest first
+  const rows = (data.alerts || []).slice();
+  if (state.sort !== 'severity') rows.sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)));
+  $('queue-count').textContent = fmtInt(data.matched);
+  const focusedKey = bodyKey();
   const body = $('alert-rows');
   $('stream-hint').textContent = state.paused
-    ? 'paused — feed is still appending'
-    : data.matched + ' matched of ' + data.stats.total + ' alerts';
+    ? 'Updates paused'
+    : 'Showing ' + rows.length + ' of ' + data.matched + ' matched · ' + (state.sort === 'severity' ? 'severity first' : 'newest first');
 
   if (!rows.length) {
     body.innerHTML = '<tr><td colspan="6"><div class="empty">No alerts match the ' +
@@ -326,62 +332,83 @@ function renderTable(data) {
     return;
   }
 
-  body.innerHTML = rows.map((a) => {
+  body.innerHTML = rows.map((a, index) => {
     const key = a.timestamp + '|' + a.src + '|' + a.threat_class + '|' + a.confidence;
     const isNew = !state.firstLoad && !state.seen.has(key);
     state.seen.add(key);
     const evidence = a.evidence || {};
-    const signal = evidence.why || evidence.note || '—';
+    const signal = a.triage?.summary || 'Measurements not recorded';
     return '<tr class="sev-row-' + esc(a.severity) + (isNew ? ' is-new' : '') +
-      '" data-key="' + esc(key) + '">' +
+      '" tabindex="0" data-index="' + index + '" aria-label="Inspect ' + esc(classLabel(a.threat_class)) + '" data-key="' + esc(key) + '">' +
       '<td class="mono cell-time">' + esc(fmtClock(a.timestamp)) + '</td>' +
       '<td><span class="badge badge-sm sev-' + esc(a.severity) + '">' +
         esc(a.severity) + '</span></td>' +
-      '<td>' + classCell(a.threat_class) + '</td>' +
+      '<td>' + classCell(a.threat_class, a.triage) + '</td>' +
       '<td class="mono cell-route">' + esc(a.src || '*') +
         '<span class="cell-arrow">→</span>' + esc(a.dst || '*') + '</td>' +
-      '<td>' + confCell(a) + '</td>' +
+      '<td title="' + esc(a.triage?.score_label || 'Detector score') + ' · not a calibrated probability">' + confCell(a) + '</td>' +
       '<td class="cell-signal" title="' + esc(signal) + '">' + esc(signal) + '</td>' +
       '</tr>';
   }).join('');
 
-  Array.prototype.forEach.call(body.querySelectorAll('tr[data-key]'), (tr) => {
-    tr.addEventListener('click', () => {
-      const alert = rows.find((a) =>
-        (a.timestamp + '|' + a.src + '|' + a.threat_class + '|' + a.confidence) === tr.dataset.key);
-      if (alert) openDetail(alert);
+  body.querySelectorAll('tr[data-key]').forEach((tr) => {
+    const inspect = () => openDetail(rows[Number(tr.dataset.index)]);
+    tr.addEventListener('click', inspect);
+    tr.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); inspect(); }
     });
+    if (focusedKey === tr.dataset.key) tr.focus({ preventScroll: true });
   });
+  state.seen = new Set(rows.map(a => a.timestamp + '|' + a.src + '|' + a.threat_class + '|' + a.confidence));
 }
 
 function renderSources(data) {
   const sources = data.sources || [];
   const box = $('top-sources');
   if (!sources.length) {
-    box.innerHTML = '<div class="empty">No offending sources in view.</div>';
+    box.innerHTML = '<div class="empty">No sources match the current filters.</div>';
     return;
   }
   const max = Math.max.apply(null, sources.map((s) => s.n));
   box.innerHTML = sources.map((s, i) => {
     const color = sevColor(s.worst);
     const share = max ? (s.n / max) * 100 : 0;
-    return '<div class="entity" style="--sev-color:' + color + '">' +
+    return '<button type="button" class="entity" data-source="' + esc(s.src) + '" aria-label="Filter alerts for ' + esc(s.src) + '" style="--sev-color:' + color + '">' +
       '<div class="entity-rank">' + (i + 1) + '</div>' +
       '<div class="entity-body">' +
-        '<div class="entity-ip">' + esc(s.src) + '</div>' +
-        '<div class="entity-meta">' + esc(classLabel(s.dominant)) +
-          ' · worst ' + esc(s.worst) + '</div>' +
+        '<div class="entity-ip">' + esc(s.src === '*' ? 'Unattributed' : s.src) + '</div>' +
+        '<div class="entity-meta">' + fmtInt(s.signals?.rule_records) + ' rule · ' +
+          fmtInt(s.signals?.model_records) + ' model · ' + fmtInt(s.signals?.correlation_records) + ' correlated</div>' +
       '</div>' +
       '<div class="entity-count">' + s.n + '</div>' +
       '<div class="entity-bar"><i style="width:' + share.toFixed(1) + '%"></i></div>' +
-      '</div>';
+      '</button>';
   }).join('');
+  box.querySelectorAll('[data-source]').forEach(button => button.addEventListener('click', () => {
+    state.source = button.dataset.source;
+    updateSourceFilter();
+    poll();
+    $('alerts').scrollIntoView({ block: 'start' });
+  }));
+}
+
+function updateSourceFilter() {
+  $('source-filter').hidden = !state.source;
+  $('source-filter-label').textContent = 'Source: ' + (state.source === '*' ? 'Unattributed' : state.source);
+}
+
+function displayValue(value) {
+  if (value === true) return 'Yes';
+  if (value === false) return 'No';
+  if (Array.isArray(value)) return value.map(displayValue).join(', ');
+  if (value && typeof value === 'object') return JSON.stringify(value);
+  return String(value);
 }
 
 function renderCoverage(stats) {
   const coverage = stats.coverage || [];
   const hits = coverage.filter((c) => c.count > 0).length;
-  $('coverage-hint').textContent = hits + ' / ' + coverage.length + ' classes fired';
+  $('coverage-hint').textContent = hits + ' / ' + coverage.length + ' with alerts';
   $('coverage').innerHTML = coverage.map((c) =>
     '<div class="cov-row' + (c.count ? ' hit' : '') + '">' +
       '<div class="cov-key">(' + esc(c.key) + ')</div>' +
@@ -394,33 +421,83 @@ function renderCoverage(stats) {
 
 function openDetail(a) {
   const evidence = a.evidence || {};
-  const color = sevColor(a.severity);
+  const triage = a.triage || {};
   const sev = $('detail-sev');
   sev.className = 'badge sev-' + a.severity;
   sev.textContent = a.severity;
-  $('detail-class').textContent = classLabel(a.threat_class);
-  $('detail-why').textContent = evidence.why || evidence.note ||
-    'No human-readable rationale attached to this alert.';
+  $('detail-class').textContent = triage.label || classLabel(a.threat_class);
+  $('detail-why').textContent = triage.summary || 'Measurements not recorded';
 
   const meta = [
     ['timestamp', a.timestamp],
-    ['flow id', a.flow_id],
+    ['Recorded flow key (not a session ID)', a.flow_id],
+    ['Detector identifier', a.threat_class],
+    ['Signal origin', triage.kind || 'Not classified'],
     ['source', a.src],
     ['destination', a.dst],
-    ['confidence', Number(a.confidence || 0).toFixed(3)],
-    ['severity', a.severity + '  (' + color + ')'],
+    [triage.score_label || 'Detector score', a.confidence == null ? 'Not recorded' : Number(a.confidence).toFixed(3)],
+    ['severity', a.severity],
   ];
   $('detail-meta').innerHTML = meta.map(([k, v]) =>
     '<div><dt>' + esc(k) + '</dt><dd>' + esc(v) + '</dd></div>').join('');
 
-  const rest = Object.entries(evidence).filter(([k]) => k !== 'why');
-  $('detail-evidence').textContent = rest.length
-    ? JSON.stringify(Object.fromEntries(rest), null, 2)
-    : '(no extra evidence fields)';
+  $('detail-facts').innerHTML = (triage.facts || []).map(fact =>
+    '<div><dt>' + esc(fact.label) + '</dt><dd>' + esc(displayValue(fact.value)) + '</dd></div>').join('') ||
+    '<div><dt>Evidence</dt><dd>No typed measurements recorded; inspect original evidence below.</dd></div>';
+  $('detail-caveat').textContent = (triage.caveat || 'Interpretation context is not recorded.') +
+    ' Detector scores are not calibrated probabilities of compromise.';
+  $('detail-next-step').textContent = triage.next_step || 'Inspect the original record and detector documentation before assigning a verdict.';
+  const related = triage.related || [];
+  $('detail-related-section').hidden = !related.length;
+  $('detail-related').innerHTML = related.map(signal =>
+    '<div class="related-signal"><strong>' + esc(classLabel(signal.label)) + '</strong><span>' +
+    (signal.age_seconds == null ? 'Age not recorded' : esc(signal.age_seconds) + ' s before correlation') +
+    ' · ' + esc(signal.destination || 'Destination not attributed') +
+    (signal.effective_score == null ? '' : ' · weighted score ' + esc(signal.effective_score)) +
+    '</span></div>').join('');
+  $('detail-evidence').textContent = JSON.stringify(evidence, null, 2);
+  $('export-alert').dataset.record = triage.export_key || '';
+  $('export-alert').disabled = !triage.export_key;
+  $('export-status').textContent = triage.export_key
+    ? 'One selected alert · active filters recorded'
+    : 'Export key unavailable; refresh the queue';
 
   const modal = $('detail-modal');
   if (typeof modal.showModal === 'function') modal.showModal();
   else modal.setAttribute('open', '');
+}
+
+async function exportSelectedAlert() {
+  const button = $('export-alert');
+  const key = button.dataset.record;
+  if (!key) return;
+  button.disabled = true;
+  $('export-status').textContent = 'Preparing evidence export…';
+  try {
+    const params = new URLSearchParams(query());
+    params.set('record', key);
+    const response = await fetch('/api/export?' + params.toString(), {cache: 'no-store'});
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      throw new Error(detail.error || 'HTTP ' + response.status);
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="([^"]+)"/);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = match ? match[1] : 'diode-alert-evidence.json';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    $('export-status').textContent = 'Evidence bundle downloaded';
+  } catch (error) {
+    $('export-status').textContent = 'Export failed: ' + error.message;
+  } finally {
+    button.disabled = false;
+  }
 }
 
 /* --------------------------------------------------------------- filters --- */
@@ -433,7 +510,7 @@ let classKey = null;
 function severityChip(sev, count) {
   return '<button type="button" class="chip" data-sev="' + sev + '" ' +
     'aria-pressed="' + (state.severity.has(sev) ? 'true' : 'false') + '" ' +
-    'style="--chip-color:' + sevColor(sev) + '">' +
+    'style="--chip-color:var(--sev-' + sev + ')">' +
     '<span class="chip-dot"></span>' + esc(sev) +
     '<span class="chip-count">' + count + '</span></button>';
 }
@@ -442,12 +519,14 @@ function buildFilters() {
   if (filtersBuilt) return;
   $('filters').innerHTML =
     SEVERITIES.map((s) => severityChip(s, 0)).join('') +
-    '<input class="search" id="search" type="search" placeholder="filter by src, dst, class or evidence…">' +
-    '<select class="select" id="class-select"><option value="">all classes</option></select>' +
-    '<select class="select" id="limit-select">' +
+    '<input class="search" id="search" type="search" aria-label="Search alerts" placeholder="Search IP address, detection or evidence…">' +
+    '<select class="select" id="class-select" aria-label="Detection class"><option value="">All detections</option></select>' +
+    '<select class="select" id="limit-select" aria-label="Maximum displayed alerts">' +
       [100, 400, 1000].map((n) => '<option value="' + n + '"' +
-        (state.limit === n ? ' selected' : '') + '>last ' + n + '</option>').join('') +
-    '</select>';
+        (state.limit === n ? ' selected' : '') + '>Show up to ' + n + '</option>').join('') +
+    '</select>' +
+    '<select class="select" id="kind-select" aria-label="Signal origin"><option value="">All signal origins</option><option value="rule">Rule signals</option><option value="model">Model signals</option><option value="correlation">Correlations</option><option value="unknown">Unclassified</option></select>' +
+    '<select class="select" id="sort-select" aria-label="Queue ordering"><option value="newest">Newest first</option><option value="severity">Severity first</option></select>';
 
   Array.prototype.forEach.call($('filters').querySelectorAll('.chip'), (chip) => {
     chip.addEventListener('click', () => {
@@ -475,6 +554,8 @@ function buildFilters() {
     poll();
   });
 
+  $('kind-select').addEventListener('change', event => { state.kind = event.target.value; poll(); });
+  $('sort-select').addEventListener('change', event => { state.sort = event.target.value; poll(); });
   filtersBuilt = true;
 }
 
@@ -489,7 +570,7 @@ function updateFilters(stats) {
   if (key === classKey) return;
   classKey = key;
   const select = $('class-select');
-  select.innerHTML = '<option value="">all classes</option>' +
+  select.innerHTML = '<option value="">All detections</option>' +
     classes.map((c) => '<option value="' + esc(c) + '"' +
       (state.cls.has(c) ? ' selected' : '') + '>' + esc(classLabel(c)) + '</option>').join('');
 }
@@ -508,25 +589,45 @@ function query() {
   if (state.severity.size) params.set('severity', Array.from(state.severity).join(','));
   if (state.cls.size) params.set('cls', Array.from(state.cls).join(','));
   if (state.q) params.set('q', state.q);
+  if (state.source) params.set('src', state.source);
+  if (state.kind) params.set('kind', state.kind);
+  if (state.from) params.set('from', state.from);
+  if (state.to) params.set('to', state.to);
+  params.set('sort', state.sort);
   return params.toString();
 }
 
+let latestRequest = 0;
+let activeRequest = null;
 async function poll() {
+  const request = ++latestRequest;
+  if (activeRequest) activeRequest.abort();
+  activeRequest = new AbortController();
   try {
-    const res = await fetch('/api/alerts?' + query(), { cache: 'no-store' });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const res = await fetch('/api/alerts?' + query(), { cache: 'no-store', signal: activeRequest.signal });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'HTTP ' + res.status);
+    }
     const data = await res.json();
+    if (request !== latestRequest) return;
+    $('connection-notice').hidden = true;
     updateFilters(data.stats);
     renderStats(data.stats);
     renderTimeline(data.timeline);
     renderMix(data.stats);
     renderTable(data);
     renderSources(data);
-    if (!state.paused) setLive('live');
+    setLive(state.paused ? 'paused' : 'live');
     state.firstLoad = false;
   } catch (err) {
+    if (err.name === 'AbortError' || request !== latestRequest) return;
     setLive('down');
-    $('stream-hint').textContent = 'feed unavailable: ' + err.message;
+    $('connection-notice').hidden = false;
+    $('connection-notice').textContent = 'Unable to refresh: ' + err.message + '. Displayed data may be out of date.';
+    $('stream-hint').textContent = 'Feed unavailable · last successful data retained';
+  } finally {
+    if (request === latestRequest) activeRequest = null;
   }
 }
 
@@ -537,8 +638,8 @@ function setLive(mode) {
   pill.classList.toggle('paused', mode === 'paused');
   pill.classList.toggle('down', mode === 'down');
   $('live-label').textContent =
-    mode === 'live' ? 'live · tailing alerts.jsonl'
-  : mode === 'paused' ? 'paused'
+    mode === 'live' ? 'Auto-refresh · 2s'
+  : mode === 'paused' ? 'Updates paused'
   : 'feed unavailable';
 }
 
@@ -563,15 +664,36 @@ function startClock() {
 function press(btn, fn) { btn.addEventListener('click', fn); }
 
 function main() {
-  initCharts();
   startClock();
   buildFilters();
+  press($('export-alert'), exportSelectedAlert);
+  $('clear-source').addEventListener('click', () => { state.source = ''; updateSourceFilter(); poll(); });
+  const utc = value => value ? value + (value.length === 16 ? ':00Z' : 'Z') : '';
+  ['from', 'to'].forEach(bound => $('time-' + bound).addEventListener('change', event => {
+    state[bound] = utc(event.target.value); poll();
+  }));
+  $('clear-time').addEventListener('click', () => {
+    $('time-from').value = $('time-to').value = state.from = state.to = ''; poll();
+  });
+  const updateNav = () => document.querySelectorAll('.nav-link').forEach(link => {
+    const active = link.hash === (location.hash || '#overview');
+    link.classList.toggle('active', active);
+    if (active) link.setAttribute('aria-current', 'location');
+    else link.removeAttribute('aria-current');
+  });
+  window.addEventListener('hashchange', updateNav);
+  updateNav();
 
   press($('pause-btn'), () => {
     state.paused = !state.paused;
-    $('pause-btn').textContent = state.paused ? 'Resume' : 'Pause';
-    setLive(state.paused ? 'paused' : 'live');
-    if (!state.paused) poll();
+    $('pause-btn').textContent = state.paused ? 'Resume updates' : 'Pause updates';
+    if (state.paused) {
+      ++latestRequest;
+      if (activeRequest) activeRequest.abort();
+      activeRequest = null;
+      setLive('paused');
+      $('stream-hint').textContent = 'Updates paused';
+    } else poll();
   });
 
   press($('refresh-btn'), () => poll());
@@ -580,7 +702,7 @@ function main() {
     const root = document.documentElement;
     const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
     root.setAttribute('data-theme', next);
-    $('theme-btn').textContent = next === 'dark' ? 'Light' : 'Dark';
+    $('theme-btn').textContent = next === 'dark' ? 'Light theme' : 'Dark theme';
     try { localStorage.setItem('nids-theme', next); } catch (e) { /* private mode */ }
     restyleCharts();
   });
@@ -589,13 +711,14 @@ function main() {
     const saved = localStorage.getItem('nids-theme');
     if (saved === 'light') {
       document.documentElement.setAttribute('data-theme', 'light');
-      $('theme-btn').textContent = 'Dark';
+      $('theme-btn').textContent = 'Dark theme';
     }
   } catch (e) { /* private mode */ }
 
+  initCharts();
   poll();
-  setInterval(() => { if (!state.paused) poll(); }, POLL_MS);
-  $('footer-version').textContent = 'dashboard poll ' + (POLL_MS / 1000) + 's';
+  setInterval(() => { if (!state.paused && !activeRequest) poll(); }, POLL_MS);
+  $('footer-version').textContent = 'All event times in UTC · Refresh interval ' + (POLL_MS / 1000) + 's';
 }
 
 if (document.readyState === 'loading') {

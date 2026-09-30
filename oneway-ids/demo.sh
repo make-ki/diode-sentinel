@@ -1,86 +1,131 @@
 #!/usr/bin/env bash
-# One-command demo: generate the one-way capture, run every detector tier, and
-# serve the dashboard. Nothing else is needed to see the system work end to end.
-#
-#   ./demo.sh            # replay mode (no privileges required)
-#   ./demo.sh --live     # same, but through the live driver (stream clock,
-#                        # drop accounting) -- still no root, because --live on
-#                        # a file routes to the unprivileged pcap-stream source
-#   ./demo.sh --fresh    # regenerate the capture instead of reusing the one
-#                        # on disk (use this on stage, so the demo can never
-#                        # show a stale or hand-edited capture)
-#
-# The dashboard is the last thing started, so a browser pointed at
-# http://localhost:8600 shows the alerts as they land. Ctrl-C stops everything.
-#
-# The script is defensive by design: every stage is checked before it runs, so
-# a failure on stage prints one readable line instead of a traceback.
-
+# Paced synthetic end-to-end demo. The capture, FIFO, alerts and sidecars live
+# in a fresh temporary directory; no existing capture or runtime state is read.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 PY=${PY:-.venv/bin/python}
-# NixOS: libstdc++/zlib must be on the loader path or numpy fails to import.
-if [ -f .env-ml ]; then source .env-ml; fi
+if [ -f .env-ml ]; then
+    set +e
+    source .env-ml
+    set -e
+fi
 
 PORT=8600
-LIVE=0
-FRESH=0
+SPEED=10
 for arg in "$@"; do
     case "$arg" in
-        --live)  LIVE=1 ;;
-        --fresh) FRESH=1 ;;
         --port=*) PORT="${arg#--port=}" ;;
-        *) echo "usage: $0 [--live] [--fresh] [--port=NNNN]"; exit 2 ;;
+        --speed=*) SPEED="${arg#--speed=}" ;;
+        --fresh|--live) ;;
+        -h|--help)
+            echo "usage: $0 [--speed=10] [--port=8600] [--fresh] [--live]"
+            echo "Fresh synthetic replay at 10x by default; dashboard remains open after completion."
+            exit 0 ;;
+        *) echo "usage: $0 [--speed=10] [--port=8600] [--fresh] [--live]" >&2; exit 2 ;;
     esac
 done
 
-# --- preflight: fail fast with one readable line, never a traceback ---------
-fail() { echo "demo: $*"; exit 1; }
+fail() { echo "demo: $*" >&2; exit 1; }
+[ -x "$PY" ] || fail "python not found at $PY (run uv sync)"
+[[ "$SPEED" =~ ^[0-9]+([.][0-9]+)?$ ]] || fail "--speed must be a positive number"
+awk "BEGIN { exit !($SPEED > 0) }" || fail "--speed must be greater than zero"
+"$PY" -c 'import numpy, dpkt, scapy' 2>/dev/null || fail "demo dependencies missing (run uv sync)"
+[ -f model_dga_cnn.npz ] || fail "DGA model artifact missing: model_dga_cnn.npz"
 
-[ -x "$PY" ] || fail "python not found at $PY (run: uv sync, or python -m venv .venv && pip install -e .)"
+RUN_DIR=$(mktemp -d "${TMPDIR:-/tmp}/diode-sentinel-demo.XXXXXX")
+FIFO="$RUN_DIR/feed.pcap"
+ALERTS="$RUN_DIR/alerts.jsonl"
+CAPTURE="$RUN_DIR/synthetic.pcap"
+mkfifo "$FIFO"
+export DIODESENTINEL_PCAP_PATH="$CAPTURE"
+export DIODESENTINEL_ALERTS_PATH="$ALERTS"
+export DIODESENTINEL_DEMO=1
 
-# Import the heavy deps now: a missing/incompatible numpy or lightgbm must not
-# surface for the first time two minutes into the demo.
-"$PY" -c 'import numpy, lightgbm, dpkt' 2>/dev/null \
-  || fail "python deps missing (numpy/lightgbm/dpkt) -- run: uv sync"
+DASH_PID= RUN_PID= REPLAY_PID=
+cleanup() {
+    trap - INT TERM EXIT
+    for pid in "$REPLAY_PID" "$RUN_PID" "$DASH_PID"; do
+        if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
+    done
+    for pid in "$REPLAY_PID" "$RUN_PID" "$DASH_PID"; do
+        if [ -n "$pid" ]; then wait "$pid" 2>/dev/null || true; fi
+    done
+    rm -rf "$RUN_DIR"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-for f in model_ml.txt model_dga_cnn.npz models567/manifest.json; do
-    [ -f "$f" ] || fail "model artifact missing: $f"
-done
-
-# The dashboard must bind the port itself; probe first so a stale occupier
-# produces a message, not an address-already-in-use traceback mid-stage.
-"$PY" - "$PORT" <<'PYEOF' 2>/dev/null || exit 1
+# Catch a stale dashboard before starting any child process.
+"$PY" - "$PORT" <<'PYEOF' || exit 1
 import socket, sys
-s = socket.socket(); s.settimeout(1)
+s = socket.socket(); s.settimeout(.4)
 try:
     if s.connect_ex(("127.0.0.1", int(sys.argv[1]))) == 0:
-        print(f"demo: port {sys.argv[1]} is already in use -- close the other "
-              f"dashboard, or run: ./demo.sh --port={int(sys.argv[1]) + 1}")
+        print(f"demo: port {sys.argv[1]} is already in use", file=sys.stderr)
         sys.exit(1)
 finally:
     s.close()
 PYEOF
 
-echo "== 1/3  synthetic one-way capture (12k packets, 600 s) =="
-if [ "$FRESH" -eq 1 ] || [ ! -f traffic.pcap ]; then
-    "$PY" gen_traffic.py || fail "capture generation failed"
-else
-    echo "      reusing traffic.pcap (--fresh to regenerate)"
-fi
+echo "== 1/3  generate a fresh seeded synthetic one-way capture =="
+env -u MESSY "$PY" -c 'import runpy, core.config; runpy.run_path("gen_traffic.py", run_name="__main__")' \
+    || fail "capture generation failed"
+[ -s "$CAPTURE" ] || fail "generator did not create the expected fresh capture"
 
-echo "== 2/3  pipeline: rules + ML tier + DGA CNN + category 5-7 models =="
-if [ "$LIVE" -eq 1 ]; then
-    # Replay through the live driver with no CAP_NET_RAW: --live on a file path
-    # is routed to the pcap-stream source, so the demo works without sudo.
-    "$PY" run.py --live traffic.pcap --no-state \
-         --ml --dga-cnn --models-567 models567/manifest.json \
-      || fail "pipeline failed"
-else
-    "$PY" run.py --ml --dga-cnn --models-567 models567/manifest.json \
-      || fail "pipeline failed"
-fi
+echo "== 2/3  start synthetic demo dashboard before replay =="
+"$PY" dashboard.py "$PORT" &
+DASH_PID=$!
+"$PY" - "$PORT" <<'PYEOF' || fail "dashboard did not become ready"
+import sys, time, urllib.request
+url = f"http://127.0.0.1:{sys.argv[1]}/api/stats"
+for _ in range(100):
+    try:
+        with urllib.request.urlopen(url, timeout=.3):
+            break
+    except Exception:
+        time.sleep(.1)
+else:
+    raise SystemExit(1)
+PYEOF
 
-echo "== 3/3  dashboard on http://localhost:$PORT (Ctrl-C to stop) =="
-exec "$PY" dashboard.py "$PORT"
+echo "      http://localhost:$PORT  | SYNTHETIC DEMO DATA | rules + DGA CNN"
+echo "      seeded synthetic threat profiles are demonstration fixtures, not live threat intelligence"
+echo "== 3/3  stream capture at ${SPEED}x (dashboard stays open at EOF) =="
+"$PY" run.py --pipe "$FIFO" --no-state --dga-cnn &
+RUN_PID=$!
+"$PY" demo_replay.py "$CAPTURE" "$FIFO" --speed "$SPEED" &
+REPLAY_PID=$!
+
+set +e
+wait -n -p FIRST_PID "$REPLAY_PID" "$RUN_PID"
+FIRST_STATUS=$?
+set -e
+if [ "$FIRST_PID" = "$REPLAY_PID" ]; then
+    REPLAY_STATUS=$FIRST_STATUS
+    REPLAY_PID=
+    if [ "$REPLAY_STATUS" -ne 0 ]; then
+        kill "$RUN_PID" 2>/dev/null || true
+    fi
+else
+    RUN_STATUS=$FIRST_STATUS
+    RUN_PID=
+    if [ "$RUN_STATUS" -ne 0 ]; then
+        # The reader may have died before opening the FIFO; stop a writer
+        # blocked in open() so an early pipeline error cannot hang the demo.
+        kill "$REPLAY_PID" 2>/dev/null || true
+    fi
+fi
+if [ -n "$REPLAY_PID" ]; then
+    set +e; wait "$REPLAY_PID"; REPLAY_STATUS=$?; set -e
+    REPLAY_PID=
+fi
+if [ -n "$RUN_PID" ]; then
+    set +e; wait "$RUN_PID"; RUN_STATUS=$?; set -e
+    RUN_PID=
+fi
+[ "$REPLAY_STATUS" -eq 0 ] || fail "paced replay failed (status $REPLAY_STATUS)"
+[ "$RUN_STATUS" -eq 0 ] || fail "pipeline failed (status $RUN_STATUS)"
+echo "Replay complete. The dashboard now shows the completed synthetic run. Press Ctrl-C to close it."
+wait "$DASH_PID"

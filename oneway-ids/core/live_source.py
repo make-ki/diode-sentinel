@@ -113,7 +113,7 @@ def _parse_packet_stats(raw: bytes):
     values are deltas since the previous call, not lifetime totals.
     """
     if len(raw) < 8:
-        return (0, 0)
+        return (None, None)
     return struct.unpack("II", raw[:8])
 
 
@@ -172,7 +172,8 @@ class AfPacketSource:
                                    # every detector is TCP/UDP-shaped
         self.malformed = 0         # undissectable frames
         self._counter = 0
-        self._dropped = 0
+        self._dropped = None       # unknown until PACKET_STATISTICS succeeds
+        self.last_packet_observed_at = None
 
     # -- lifecycle ---------------------------------------------------------
     def open(self):
@@ -240,11 +241,11 @@ class AfPacketSource:
         counters live on the object (seen / sampled_out / non_ip / malformed).
         """
         if self.sock is None:
-            return (0, 0)
+            return (None, None)
         try:
             raw = self.sock.getsockopt(SOL_PACKET, PACKET_STATISTICS, 8)
         except OSError:
-            return (0, 0)
+            return (None, None)
         return _parse_packet_stats(raw)
 
     def snapshot(self) -> dict:
@@ -261,7 +262,9 @@ class AfPacketSource:
                 "sampled_out": self.sampled_out, "non_ipv4": self.non_ipv4,
                 "other_ip": self.other_ip,
                 "malformed": self.malformed, "sample": self.sample,
-                "kernel_dropped": self._dropped}
+                "kernel_dropped": (self._dropped if self.sock is not None
+                                    else None),
+                "last_packet_observed_at": self.last_packet_observed_at}
 
     # -- capture -----------------------------------------------------------
     def _keep(self) -> bool:
@@ -343,8 +346,9 @@ class AfPacketSource:
             except BlockingIOError:
                 break
             except OSError:
-                break
+                raise
             self.seen += 1
+            self.last_packet_observed_at = time.time()
             if not self._keep():
                 continue
             ts = _cmsg_timestamp(ancdata)
@@ -353,8 +357,11 @@ class AfPacketSource:
             pkt = self.dissect(data, ts)
             if pkt is not None and self._passes_filter(pkt):
                 out.append(pkt)
-        pkts, drops = self.stats()
-        self._dropped += drops
+        _pkts, drops = self.stats()
+        if drops is not None:
+            if self._dropped is None:
+                self._dropped = 0
+            self._dropped += drops
         return out
 
     def __iter__(self):
@@ -591,6 +598,7 @@ class PcapStreamSource(AfPacketSource):
                 self.anchor = _align(ts)  # t=0 at the first captured record
             self._last_ts = ts
             self.seen += 1
+            self.last_packet_observed_at = time.time()
             if not self._keep():
                 continue
             pkt = self.dissect(buf, ts)
@@ -625,4 +633,5 @@ class PcapStreamSource(AfPacketSource):
         snap = super().snapshot()
         snap["source"] = f"pcap stream {self.path}"
         snap["eof"] = self.eof
+        snap["kernel_dropped"] = None
         return snap

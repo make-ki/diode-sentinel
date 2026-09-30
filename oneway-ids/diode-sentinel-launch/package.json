@@ -1,0 +1,29 @@
+{
+  "name": "diode-sentinel-launch",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "prepare-media": "node scripts/prepare-product.mjs",
+    "render": "npm run prepare-media && node scripts/render.mjs product",
+    "typecheck": "tsc --noEmit",
+    "claims": "node scripts/claims-trace.mjs",
+    "prepare:explainer": "../.venv/bin/python scripts/prepare-explainer-media.py --strict",
+    "review:explainer": "node scripts/review-explainer.mjs",
+    "claims:explainer": "node scripts/explainer-claims.mjs",
+    "render:explainer": "node scripts/render.mjs explainer"
+  },
+  "dependencies": {
+    "remotion": "4.0.479",
+    "@remotion/cli": "4.0.479",
+    "@remotion/transitions": "4.0.479",
+    "@remotion/google-fonts": "4.0.479",
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/react": "19.0.0",
+    "@types/react-dom": "19.0.0"
+  }
+}

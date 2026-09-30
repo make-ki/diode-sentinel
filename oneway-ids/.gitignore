@@ -33,9 +33,20 @@ dist/
 *.log
 !docs/**/*.log
 
+# --- generated demo video (an output, not source; rebuild with
+#     nix develop --command .venv/bin/python demo_video/build_demo_video.py) ---
+demo_video/out/
+demo_video/fixtures/
+
 # --- scratch / agent loops ---
 .loop_results/
 .loop_backup/
 .regression/*.tmp
 NOTES.local.md
 handoff.local.md
+
+# --- machine-specific Codex setup ---
+.codex/
+
+# One-off internal review prompt; VIDEO-BRIEF.md is the maintained spec.
+PROMPT-ASTRA-VIDEO-BRIEF.md

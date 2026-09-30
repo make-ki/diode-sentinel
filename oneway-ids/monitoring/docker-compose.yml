@@ -16,6 +16,13 @@ services:
   prometheus:
     image: prom/prometheus:v3.13.1        # LTS line
     container_name: nids-prometheus
+    # Host networking: the sensor exports on the host's :9100, and this host's
+    # firewall drops bridge->host traffic to arbitrary ports (host.docker.internal
+    # and the docker0/br-net gateways both time out), so a bridged Prometheus
+    # cannot scrape it without a root firewall change. On localhost everything
+    # is reachable with no root. If you move the sensor to another host, revert
+    # to bridged networking and point the target at it in prometheus.yml.
+    network_mode: host
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=15d
@@ -23,17 +30,14 @@ services:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
-    ports:
-      - "9090:9090"
-    # Lets prometheus.yml scrape a sensor running on the docker host itself
-    # (run.py --metrics-port 9100) via host.docker.internal.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   grafana:
     image: grafana/grafana:12.4.11
     container_name: nids-grafana
+    # host networking for the same reason: the datasource must reach the
+    # host-net Prometheus on localhost, and :3000 is free on the host.
+    network_mode: host
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
@@ -44,8 +48,6 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
-    ports:
-      - "3000:3000"
     depends_on:
       - prometheus
     restart: unless-stopped

@@ -10,7 +10,7 @@ datasources:
     type: prometheus
     uid: nids-prom
     access: proxy
-    url: http://prometheus:9090
+    url: http://localhost:9090   # prometheus runs host-networked
     isDefault: true
     jsonData:
       timeInterval: 15s        # match the scrape interval

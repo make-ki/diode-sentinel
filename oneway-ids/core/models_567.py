@@ -136,6 +136,17 @@ def _anomaly_probability(model, features):
     return 1.0 / (1.0 + math.exp(10.0 * score))
 
 
+def _anomaly_evidence(model, name, features):
+    """Return an explicitly uncalibrated IsolationForest score for evidence."""
+    score = float(model.decision_function(features)[0])
+    return {
+        "model": name,
+        "anomaly_score": score,
+        "score_kind": "uncalibrated_decision_function",
+        "more_anomalous_when": "lower",
+    }
+
+
 class Models567:
     """Optional serving bundle for category-specific model artifacts."""
 
@@ -149,6 +160,7 @@ class Models567:
         self.alerted = set()
         self.exfil_totals = {}
         self.exfil_novel = set()
+        self.metadata_skipped = 0
         self._load()
 
     def _load(self):
@@ -174,7 +186,16 @@ class Models567:
 
     def score_flow(self, flow):
         alerts = []
-        if "encrypted_xgb" in self.models:
+        meta = flow.get("tls_meta")
+        # An absent ClientHello is not a Hello with zero offered ciphers.
+        # The model's inputs describe observed handshake fields; require
+        # those fields before scoring. Packet-shape analysis stays eligible.
+        metadata_available = isinstance(meta, dict) and all(
+            field in meta for field in
+            ("cipher_count", "ext_count", "version", "sni", "sig_algs"))
+        if "encrypted_xgb" in self.models and not metadata_available:
+            self.metadata_skipped += 1
+        if "encrypted_xgb" in self.models and metadata_available:
             score = _probability(self.models["encrypted_xgb"],
                                  [encrypted_metadata_features(flow)])
             key = ("encrypted", flow["key"])
@@ -197,26 +218,42 @@ class Models567:
                 }))
         return alerts
 
-    def score_scan(self, window, src):
+    def score_scan(self, window, src, rule_corroborated=False):
+        """Score scan evidence from one-way source/destination/port windows.
+
+        IsolationForest scores are never standalone probabilities or threat
+        alerts. When a supervised scan model alerts, an IF score is attached
+        only if the caller explicitly reports deterministic-rule corroboration.
+        """
         features = scan_features(window, src)
         if len(window.get("pairs", {}).get(src, set())) < SCAN_MIN_PAIRS:
             return []
         alerts = []
-        for name in ("scan_rf", "scan_iforest"):
-            if name not in self.models:
-                continue
-            score = (_anomaly_probability(self.models[name], features)
-                     if name.endswith("iforest") else
-                     _probability(self.models[name], features))
+        if "scan_rf" in self.models:
+            name = "scan_rf"
+            score = _probability(self.models[name], features)
             key = (name, "scan", window.get("idx"), src)
             if score >= self.thresholds.get(name, 0.8) \
                     and key not in self.alerted:
                 self.alerted.add(key)
                 alerts.append(("recon_model_scan", score,
                                {"model": name, "features": features[0]}))
+        if alerts and rule_corroborated and "scan_iforest" in self.models:
+            evidence = _anomaly_evidence(
+                self.models["scan_iforest"], "scan_iforest", features)
+            for index, (threat, score, details) in enumerate(alerts):
+                alerts[index] = (threat, score,
+                                 {**details, "iforest_corroboration": evidence})
         return alerts
 
-    def score_exfil(self, window, src, dst, total_bytes):
+    def score_exfil(self, window, src, dst, total_bytes,
+                    rule_corroborated=False):
+        """Score exfil evidence from one-way byte and destination metadata.
+
+        IsolationForest scores are never standalone probabilities or threat
+        alerts. When a supervised exfil model alerts, an IF score is attached
+        only if the caller explicitly reports deterministic-rule corroboration.
+        """
         pair = (src, dst)
         self.exfil_totals[pair] = self.exfil_totals.get(pair, 0.0) + total_bytes
         if dst in window.get("novel_dsts", set()):
@@ -231,18 +268,21 @@ class Models567:
         # which is what the holdout sweep exposed).
         features = exfil_features(window, src, dst, total_bytes)
         alerts = []
-        for name in ("exfil_xgb", "exfil_iforest"):
-            if name not in self.models:
-                continue
-            score = (_anomaly_probability(self.models[name], features)
-                     if name.endswith("iforest") else
-                     _probability(self.models[name], features))
+        if "exfil_xgb" in self.models:
+            name = "exfil_xgb"
+            score = _probability(self.models[name], features)
             key = (name, "exfil", src, dst)
             if score >= self.thresholds.get(name, 0.8) \
                     and key not in self.alerted:
                 self.alerted.add(key)
                 alerts.append(("data_exfiltration_model", score,
                                {"model": name, "features": features[0]}))
+        if alerts and rule_corroborated and "exfil_iforest" in self.models:
+            evidence = _anomaly_evidence(
+                self.models["exfil_iforest"], "exfil_iforest", features)
+            for index, (threat, score, details) in enumerate(alerts):
+                alerts[index] = (threat, score,
+                                 {**details, "iforest_corroboration": evidence})
         return alerts
 
 

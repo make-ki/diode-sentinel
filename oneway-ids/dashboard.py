@@ -28,6 +28,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 
 from core.config import ALERTS_PATH, PROJECT_DIR
+from core.evidence_export import make_alert_bundle, record_sha256
+from dashboard_signals import describe_alert, summarize_alerts
 
 STATIC_DIR = os.path.join(PROJECT_DIR, "static")
 STATS_PATH = os.path.join(os.path.dirname(ALERTS_PATH) or ".", "run_stats.json")
@@ -37,7 +39,7 @@ SEV_RANK = {s: i for i, s in enumerate(reversed(SEVERITIES), start=1)}
 
 # The six threat classes of PS-26145, in problem-statement order.
 PS_CLASSES = [
-    ("a", "DDoS / SYN flood"),
+    ("a", "DDoS / traffic bursts"),
     ("b", "C2 beaconing"),
     ("c", "DGA / DNS tunnelling"),
     ("d", "Encrypted-session malware"),
@@ -48,15 +50,23 @@ PS_CLASSES = [
 # Every class the pipeline can emit, mapped to its PS class. Fusion verdicts
 # and ML verdicts are cross-signal tiers, so they get their own coverage key.
 CLASS_TO_PS = {
+    "udp_burst_fanout": "a",
+    "udp_target_burst": "a",
     "ddos_volumetric_spoofed": "a",
     "ddos_syn_flood":          "a",
     "c2_beaconing":            "b",
     "dga_domain":              "c",
+    "dns_tunneling":           "c",
     "tls_known_malware":       "d",
     "tls_novel_fingerprint":   "d",
+    "encrypted_session_malware": "d",
     "recon_vertical_scan":     "e",
     "recon_horizontal_scan":   "e",
+    "recon_rolling_vertical_scan": "e",
+    "recon_rolling_horizontal_scan": "e",
+    "recon_model_scan":        "e",
     "data_exfiltration":       "f",
+    "data_exfiltration_model": "f",
     "confirmed_exfiltration":  "fused",
     "confirmed_c2_implant":    "fused",
     "botnet_c2_with_dga":      "fused",
@@ -83,17 +93,29 @@ _BUCKET_LADDER = (1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600)
 
 def _load():
     """Read every parseable alert from alerts.jsonl (the tail is re-read on
-    each poll, so a partially written last line is simply skipped)."""
+    each poll, so a partially written last line is simply skipped. Non-object
+    JSON and non-finite numbers are invalid alert records and are skipped too."""
     if not os.path.exists(ALERTS_PATH):
         return []
     out = []
+
+    def reject_constant(value):
+        raise ValueError(f"non-finite JSON number: {value}")
+
     with open(ALERTS_PATH) as fh:
         for line in fh:
             line = line.strip()
             if line:
                 try:
-                    out.append(json.loads(line))
-                except json.JSONDecodeError:
+                    record = json.loads(line, parse_constant=reject_constant)
+                    if not isinstance(record, dict):
+                        continue
+                    # Python's JSON decoder accepts exponent overflow such as
+                    # 1e999 as infinity; the export hash intentionally rejects
+                    # it, so omit the malformed record before it reaches views.
+                    json.dumps(record, allow_nan=False)
+                    out.append(record)
+                except (json.JSONDecodeError, ValueError, TypeError, OverflowError):
                     continue
     return out
 
@@ -107,7 +129,23 @@ def _load_sensor():
             data = json.load(fh)
     except (json.JSONDecodeError, OSError):
         return {}
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        return {}
+    health = data.get("health")
+    if isinstance(health, dict):
+        health = dict(health)
+        heartbeat = _parse_ts(health.get("heartbeat_at"))
+        age = max(0.0, (datetime.now(timezone.utc) - heartbeat).total_seconds()) if heartbeat else None
+        health["heartbeat_age_seconds"] = round(age, 1) if age is not None else None
+        if health.get("status") in ("active", "idle", "starting"):
+            # The writer heartbeats every second; five seconds allows polling
+            # jitter while exposing a killed or stalled process promptly.
+            if age is None:
+                health["status"] = "unknown"
+            elif age > 5:
+                health["status"] = "stale"
+        data["health"] = health
+    return data
 
 
 def _parse_ts(value):
@@ -140,8 +178,8 @@ def _stats(alerts, sensor):
     sev = Counter(a.get("severity") for a in alerts)
     by_class = Counter(a.get("threat_class") for a in alerts)
     hosts = {a.get("src") for a in alerts if a.get("src") not in (None, "*")}
-    times = [t for t in (_parse_ts(a.get("timestamp")) for a in alerts)
-             if t is not None]
+    times = sorted(t for t in (_parse_ts(a.get("timestamp")) for a in alerts)
+                   if t is not None)
     return {
         "total": len(alerts),
         "critical": sev.get("critical", 0),
@@ -160,6 +198,8 @@ def _stats(alerts, sensor):
         "span_seconds": round((times[-1] - times[0]).total_seconds(), 1)
                         if len(times) > 1 else 0.0,
         "sensor": sensor,
+        "synthetic_demo": os.environ.get("DIODESENTINEL_DEMO") == "1",
+        "signals": summarize_alerts(alerts),
     }
 
 
@@ -183,6 +223,7 @@ def _top_sources(alerts, limit=6):
         e["dominant"] = dom
         e["dominant_count"] = dom_n
         e["confidence"] = round(e["confidence"], 3)
+        e["signals"] = summarize_alerts([a for a in alerts if (a.get("src") or "*") == e["src"]])
         out.append(e)
     return out
 
@@ -264,14 +305,65 @@ def _payload(qs):
         limit = 400
 
     view = _filter(alerts, sev_filter, cls_filter, needle)
+    source = (qs.get("src", [""])[0] or "").strip()
+    kind = (qs.get("kind", [""])[0] or "").strip()
+    if source:
+        view = [a for a in view if (a.get("src") or "*") == source]
+    if kind:
+        view = [a for a in view if describe_alert(a)["kind"] == kind]
+    bounds = {}
+    for key in ("from", "to"):
+        raw = (qs.get(key, [""])[0] or "").strip()
+        if raw:
+            bounds[key] = _parse_ts(raw)
+            if bounds[key] is None:
+                raise ValueError(f"{key} must be an ISO timestamp in UTC")
+    if "from" in bounds and "to" in bounds and bounds["from"] > bounds["to"]:
+        raise ValueError("Start time must not follow end time")
+    if bounds:
+        view = [a for a in view if (ts := _parse_ts(a.get("timestamp"))) is not None
+                and ("from" not in bounds or ts >= bounds["from"])
+                and ("to" not in bounds or ts <= bounds["to"])]
+    if qs.get("sort", [""])[0] == "severity":
+        page = sorted(view, key=lambda a: (SEV_RANK.get(a.get("severity"), 0),
+                                          a.get("timestamp", "")), reverse=True)[:limit]
+    else:
+        page = sorted(view, key=lambda a: a.get("timestamp", ""))[-limit:]
     return {
-        "alerts": view[-limit:],
+        "alerts": [dict(a, triage=dict(describe_alert(a), export_key=record_sha256(a)))
+                   for a in page],
         "matched": len(view),
         "stats": _stats(alerts, sensor),
         "timeline": _timeline(view),
         "sources": _top_sources(view),
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
+
+
+def _export_payload(qs):
+    """Select one alert from the same filtered, limited page shown in the UI."""
+    key = (qs.get("record", [""])[0] or "").strip().lower()
+    if len(key) != 64 or any(ch not in "0123456789abcdef" for ch in key):
+        raise ValueError("record must be an alert export key")
+    payload = _payload(qs)
+    selected = next((row for row in payload["alerts"]
+                     if row.get("triage", {}).get("export_key") == key), None)
+    if selected is None:
+        raise LookupError("alert is not present on the page selected by these filters and limit")
+    original = {k: v for k, v in selected.items() if k != "triage"}
+    filter_keys = ("severity", "cls", "q", "src", "kind", "from", "to", "sort")
+    filters = {name: qs[name] for name in filter_keys if name in qs}
+    try:
+        limit = max(1, min(2000, int(qs.get("limit", ["400"])[0])))
+    except ValueError:
+        limit = 400
+    triage = dict(selected.get("triage", {}))
+    triage.pop("export_key", None)
+    bundle = make_alert_bundle(
+        original, triage, filters, matched_alerts=payload["matched"],
+        page_limit=limit, page_truncated=payload["matched"] > len(payload["alerts"]),
+        generated_at=payload["generated_at"])
+    return bundle, key
 
 
 # --------------------------------------------------------------- handlers ---
@@ -319,8 +411,32 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/static/"):
             return self._serve_static(path)
         if path == "/api/alerts":
-            return self._send(200, json.dumps(_payload(parse_qs(parsed.query))),
-                              "application/json")
+            try:
+                payload = _payload(parse_qs(parsed.query))
+            except ValueError as exc:
+                return self._send(400, json.dumps({"error": str(exc)}), "application/json")
+            return self._send(200, json.dumps(payload), "application/json")
+        if path == "/api/export":
+            qs = parse_qs(parsed.query)
+            try:
+                bundle, key = _export_payload(qs)
+            except LookupError as exc:
+                return self._send(404, json.dumps({"error": str(exc)}), "application/json")
+            except ValueError as exc:
+                return self._send(400, json.dumps({"error": str(exc)}), "application/json")
+            body = json.dumps(bundle, ensure_ascii=False, indent=2, allow_nan=False)
+            data = body.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Content-Disposition", f'attachment; filename="diode-alert-{key[:12]}.json"')
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            try:
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
         if path == "/api/stats":
             return self._send(200, json.dumps(_stats(_load(), _load_sensor())),
                               "application/json")

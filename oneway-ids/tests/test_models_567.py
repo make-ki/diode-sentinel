@@ -54,6 +54,77 @@ check("scan_feature_shape", len(scan_features(window, "10.0.0.13")[0]) == 5)
 check("exfil_feature_shape",
       len(exfil_features(window, "10.0.0.13", "203.0.113.20", 5000)[0]) == 5)
 
+
+class _AlwaysPositive:
+    def predict_proba(self, features):
+        return [[0.0, 1.0]]
+
+
+class _UncalibratedOutlier:
+    def decision_function(self, features):
+        return [-0.75]
+
+
+scan_window = dict(idx=4, pairs={"10.0.0.13": {
+    (f"198.51.100.{i}", 1000 + i) for i in range(20)}},
+    src_bytes={"10.0.0.13": 1000})
+scan_bundle = Models567({})
+scan_bundle.models = {"scan_rf": _AlwaysPositive(),
+                      "scan_iforest": _UncalibratedOutlier()}
+scan_without_rule = scan_bundle.score_scan(scan_window, "10.0.0.13")
+check("iforest_never_emits_standalone_scan_alert",
+      len(scan_without_rule) == 1
+      and scan_without_rule[0][2]["model"] == "scan_rf"
+      and "iforest_corroboration" not in scan_without_rule[0][2])
+scan_bundle.alerted.clear()
+scan_with_rule = scan_bundle.score_scan(
+    scan_window, "10.0.0.13", rule_corroborated=True)
+scan_if_evidence = scan_with_rule[0][2].get("iforest_corroboration", {})
+check("iforest_scan_score_is_uncalibrated_corroboration",
+      scan_if_evidence.get("anomaly_score") == -0.75
+      and scan_if_evidence.get("score_kind") ==
+      "uncalibrated_decision_function"
+      and scan_if_evidence.get("more_anomalous_when") == "lower")
+
+exfil_window = dict(idx=5, src_bytes={"10.0.0.13": 500_000},
+                    novel_dsts={"203.0.113.20"})
+exfil_bundle = Models567({})
+exfil_bundle.models = {"exfil_xgb": _AlwaysPositive(),
+                       "exfil_iforest": _UncalibratedOutlier()}
+exfil_without_rule = exfil_bundle.score_exfil(
+    exfil_window, "10.0.0.13", "203.0.113.20", 500_000)
+check("iforest_never_emits_standalone_exfil_alert",
+      len(exfil_without_rule) == 1
+      and exfil_without_rule[0][2]["model"] == "exfil_xgb"
+      and "iforest_corroboration" not in exfil_without_rule[0][2])
+exfil_bundle.alerted.clear()
+exfil_bundle.exfil_totals.clear()
+exfil_bundle.exfil_novel.clear()
+exfil_with_rule = exfil_bundle.score_exfil(
+    exfil_window, "10.0.0.13", "203.0.113.20", 500_000,
+    rule_corroborated=True)
+check("iforest_exfil_score_attaches_to_supervised_alert",
+      exfil_with_rule[0][2].get("iforest_corroboration", {}).get(
+          "model") == "exfil_iforest")
+
+# Exercise the real window -> rule emission -> model callback path.
+from core.pipeline import StreamProcessor
+from core.detectors import AlertSink
+with tempfile.TemporaryDirectory() as tmp:
+    sink = AlertSink(os.path.join(tmp, "alerts.jsonl"))
+    integrated = Models567({})
+    integrated.models = {"scan_rf": _AlwaysPositive(),
+                         "scan_iforest": _UncalibratedOutlier()}
+    proc = StreamProcessor(sink, models567=integrated)
+    for port in range(20):
+        proc.feed((0.01 * port, "10.0.0.13", "203.0.113.20", "tcp",
+                   40000 + port, 1000 + port, 60, True, b"", None, 0, None))
+    proc.finish()
+    model_alerts = [a for a in sink.alerts if a["threat_class"] == "recon_model_scan"]
+    check("pipeline_attaches_iforest_only_after_actual_scan_rule",
+          len(model_alerts) == 1 and
+          "iforest_corroboration" in model_alerts[0]["evidence"])
+
 with tempfile.TemporaryDirectory() as tmp:
     path = os.path.join(tmp, "sequence.npz")
     PacketSequenceCnn().save(path)

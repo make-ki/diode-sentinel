@@ -252,7 +252,7 @@ class NidsMetrics:
                  "(one-way feeds cannot retransmit)."),
             )
             for key, name, kind, help_ in mapping:
-                if key in snap:
+                if key in snap and snap[key] is not None:
                     s.append(_Sample(f"{NAMESP}_{name}", {}, snap[key],
                                      help_, kind))
 

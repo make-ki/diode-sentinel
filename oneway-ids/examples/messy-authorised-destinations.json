@@ -1,0 +1,11 @@
+[
+  {
+    "name": "Synthetic MESSY backup (demo operator approval)",
+    "source": "10.0.0.6/32",
+    "destination": "13.107.42.16/32",
+    "protocol": "tcp",
+    "port": 443,
+    "volume_class": "backup",
+    "max_bytes": 2000000
+  }
+]
