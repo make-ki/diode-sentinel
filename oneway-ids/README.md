@@ -1,4 +1,31 @@
-# One-Way NIDS — SIH 2026 PS-26145 Prototype
+# Diode Sentinel — Prototype & Execution Reference
+
+[Project overview and target architecture](../README.md) ·
+[Full execution guide](docs/run-simulation.md) · [Paced demo](docs/demo.md)
+
+This document describes the implemented sensor. The repository's
+[main README](../README.md) describes the broader six-stage deployment design
+and identifies proposed integrations separately from the shipped runtime.
+
+## Quick start
+
+From the repository root, with Linux, Python 3.14+, uv, and Bash 5.1+:
+
+```bash
+cd oneway-ids
+uv sync --locked
+./demo.sh
+```
+
+Open **http://localhost:8600**. The script creates fresh synthetic traffic,
+starts the dashboard, and runs a paced FIFO replay with rules and the shipped
+DGA CNN. Press **Ctrl+C** to stop and remove the temporary demo outputs.
+Use `./demo.sh --speed=25 --port=8601` for a faster replay on another port.
+On NixOS, enter `nix develop` before syncing, or use `source .env-ml` for
+manual Python commands. No model training, GPU, Node.js, or Docker is needed
+for this demo.
+
+## Scope
 
 AI-based detection of cyber threats in **unidirectional IP traffic** — the
 receive side of a hardware data diode. Every detector runs on a single
@@ -10,14 +37,20 @@ closure, so no end-to-end alert-latency bound is claimed for every model.
 
 ## Product walkthrough
 
-[Watch the 7:34 Diode Sentinel explainer](diode-sentinel-launch/out/diode-sentinel-explainer.mp4)
-(1080p, 30 fps). It follows observed packets through flows, detection models,
+[Build or preview the 7:34 Diode Sentinel explainer](diode-sentinel-launch/README.md)
+(1080p, 30 fps). The generated video is not included in a fresh checkout.
+It follows observed packets through flows, detection models,
 correlation and an evidence export, with Indian English narration and a live
 dashboard walkthrough. The displayed replay is synthetic; its counts are demo
 data, not accuracy or throughput claims. Production notes and claim trace are
 in [the video project](diode-sentinel-launch/README.md).
 
 ## Proof snapshot (each result is tied to its stated input)
+
+These are recorded results from the documented development captures, not
+benchmarks of a fresh checkout. `traffic.pcap` is a generated, ignored output;
+running `gen_traffic.py` creates a new capture whose counts may differ from
+the historical archive. See [HANDOFF.md](HANDOFF.md) for that archive's status.
 
 | Metric | Value | Notes |
 |---|---|---|
@@ -31,7 +64,7 @@ in [the video project](diode-sentinel-launch/README.md).
 | False-positive pressure | **1 critical rules FP; 59 benign-host ML alerts** | observed on the MESSY capture; no zero-FP claim |
 | Backend parity | **complete alert-record parity** | dpkt and scapy matched on the current archived capture |
 
-The current archived `traffic.pcap` has 14,049 packets and emits 45 rules-tier
+The documented archived `traffic.pcap` has 14,049 packets and emits 45 rules-tier
 alerts / 67 with `--ml`. The preserved historical regression files contain 46
 / 68: exactly one `tls_known_malware` alert from the old synthetic QUIC fixture
 is absent because that fixture used invalid QUIC Initial protection. Fixture
@@ -41,50 +74,36 @@ other alert records are unchanged.
 
 ## Architecture
 
-```
-data diode (one-way feed)
-   │
-   ├─► core/pcap_reader.py  dpkt (hot path) or scapy (parity reference)  [replay]
-   └─► core/live_source.py  AF_PACKET raw socket                          [live]
-   │  uniform packet tuples (same schema, same dpkt dissection)
-   ▼
-core/pipeline.py    FlowAssembler (5-tuple, idle timeout)
-                    WindowAggregator (10s windows: rates, entropy, fan-out,
-                                     novel destinations, per-pair bytes)
-   │
-   ├─► Tier-0  config allowlist (operator-curated, zero cost)
-   ├─► Tier-1  streaming detectors (core/detectors.py):
-   │      DDoS        window rate + src-IP Shannon entropy + SYN ratio
-   │      beaconing   inter-flow IAT mean/CV per (src,dst,dport),
-   │                  evidence-scaled CV gate (0.15 small-n / 0.25 n>=10)
-   │      DGA/DNS     char entropy + vowel/digit lexical profile + streak
-   │      recon/scan  per-src fan-out cardinality + dominant-dst classifier
-   │      exfil       per-(src,dst) cumulative bytes vs source baseline,
-   │                  pair-age guard
-   │      TLS/QUIC (d) ClientHello parse -> JA4/JA3 (tls_meta.py for TCP,
-   │                  quic_meta.py supports RFC-verified QUIC v1 Initials;
-   │                  its JA4 transport prefix is q, versus t for TLS):
-   │                  known-bad intel match (t=0) +
-   │                  two-tier inventory novelty (global=high/per-host=medium),
-   │                  transport-aware dedupe (channel migration re-alerts)
-   ├─► Tier-2  MLScorer (ml_tier.py): LightGBM on flow features,
-   │            micro-batched per flush tick, bare-SYN excluded (tier boundary)
-   │            + DgaCnnScorer (dga_cnn.py): 1D character CNN on the qname,
-   │            numpy-only, family-held-out trained, quorum-gated
-  │            + Models567 (models_567.py): optional category-specific
-  │              XGBoost, Random Forest, Isolation Forest, and packet CNN
-   ▼
-FusionEngine        noisy-OR over exponentially decayed confidences,
-                    fire-on-escalation dedupe, scenario tags
-   ▼
-AlertSink           standardized JSONL: timestamp, src, dst, flow_id,
-                    threat_class, confidence, severity, evidence{why, ...}
-   ▼
-dashboard.py        zero-dependency live SOC dashboard (stdlib HTTP server;
-                    daisyUI + Chart.js components vendored locally)
+```mermaid
+flowchart TD
+    Feed["Data diode / passive mirror<br/>one-way packet feed"]
+    PCAP["core/pcap_reader.py<br/>dpkt replay / Scapy reference"]
+    Live["core/live_source.py<br/>AF_PACKET / PCAP stream"]
+    Feed --> PCAP
+    Feed --> Live
+    PCAP --> Pipeline["core/pipeline.py · StreamProcessor<br/>5-tuple flow assembly · 2 s idle<br/>10 s rate / entropy / fan-out windows"]
+    Live --> Pipeline
+    Pipeline --> Rules["core/detectors.py<br/>DDoS / UDP bursts · C2 timing<br/>DNS lexical / tunnel rules · scan · exfil"]
+    Pipeline --> TLS["TLS / QUIC ClientHello<br/>JA3 / JA4 · known-bad fixture<br/>global and per-host inventory novelty"]
+    Allowlist[("core/config.py<br/>operator-curated beacon allowlist")] --> Rules
+    Pipeline --> ML["Optional model paths<br/>LightGBM · NumPy DGA CNN<br/>XGBoost · Random Forest · packet CNN"]
+    Rules --> Sink["AlertSink<br/>records + subscriber notifications"]
+    TLS --> Sink
+    ML --> Sink
+    Sink --> Fusion["FusionEngine subscriber<br/>decayed noisy-OR<br/>fire-on-escalation dedupe"]
+    Sink --> Alerts[("alerts.jsonl<br/>timestamp · endpoints · flow_id<br/>class · confidence · severity · evidence")]
+    Fusion -->|"correlated records"| Alerts
+    Alerts --> Dashboard["dashboard.py · port 8600<br/>stdlib HTTP server<br/>local daisyUI + Chart.js"]
 ```
 
-## The seven requested threat classes — how each is detected one-way
+The model paths are opt-in. LightGBM scores closed flows in micro-batches and
+excludes bare SYNs; the DGA CNN is quorum-gated. Specialist models score
+eligible closed flows/windows. Isolation Forest scores are supporting
+evidence on corroborated supervised alerts. There is no Kafka, Flink, ONNX,
+ClickHouse, or React service in this runtime; see the
+[target architecture](../README.md#architecture) for the proposed deployment.
+
+## The six requested threat classes — how each is detected one-way
 
 | PS class | Detector | One-way signal |
 |---|---|---|
@@ -92,8 +111,8 @@ dashboard.py        zero-dependency live SOC dashboard (stdlib HTTP server;
 | (b) C2 beaconing | IAT periodicity | inter-flow arrival regularity (CV), no request/response pairing |
 | (c) DGA / DNS tunnelling | lexical + behavioral | qname entropy, vowel/digit profile, streaks |
 | (d) malware in encrypted sessions | JA4/JA3 + novelty | ClientHello metadata over TLS and RFC-verified QUIC v1 Initials; JA4 uses `t` for TLS and `q` for QUIC |
-| (6) recon / port scan | fan-out | distinct (dst,port) pairs per src per window, classified as vertical or horizontal |
-| (7) data exfiltration | volume + novelty | cumulative bytes to destinations first observed in the stream, compared with the source baseline |
+| (e) recon / port scan | fan-out | distinct (dst,port) pairs per src per window, classified as vertical or horizontal |
+| (f) data exfiltration | volume + novelty | cumulative bytes to destinations first observed in the stream, compared with the source baseline |
 
 ## Layout
 
@@ -142,7 +161,7 @@ training/            trainers + the external benchmark (write model artifacts)
   train_models_567.py  category 5-7 trainers + threshold sweep + holdout eval
   bench_dga.py         cross-dataset benchmark on andrewaeva/DGA (external,
                         unmodified; model loaded as shipped) -> dga_bench.json
-tests/               the 10 suites (plain unittest scripts; no pytest dep)
+tests/               plain unittest scripts; no pytest dependency
   test_tls_meta.py     parsing, JA4/JA3 golden vectors, reassembly,
                         seq tracking, detector units
   test_fusion.py       noisy-OR, dedupe semantics, decay, scenario gates
@@ -194,6 +213,10 @@ uv sync          # creates .venv bit-for-bit from uv.lock (numpy, scipy,
 uv sync --extra ml567   # + optional category 5-7 model deps (xgboost)
 ```
 
+Run these from `oneway-ids/`, not the repository root. The pinned project
+requires Python **3.14 or newer**. Use `uv sync --locked` to enforce the
+committed lockfile without resolving changes; no dependency edit is needed.
+
 `dga_bench.json` also records the model sha256 and both corpus-file digests, so
 the benchmark run itself is reproducible, not just the environment.
 
@@ -226,18 +249,18 @@ uv run python run.py                  # full pipeline + report
 uv run python run.py --parity         # dpkt vs scapy parity check
 uv run python training/train_ml.py             # train ML tier (temporal split)
 uv run python run.py --ml             # pipeline + ML tier
-uv run python tests/test_tls_meta.py        # 42 unit tests (TLS/JA4)
-uv run python tests/test_fusion.py          # 15 unit tests (fusion)
+uv run python tests/test_tls_meta.py        # TLS/JA4 checks
+uv run python tests/test_fusion.py          # fusion checks
 uv run python tests/test_quic.py            # RFC fixtures + malformed-input checks
-uv run python tests/test_live.py            # 64 unit tests (live capture path)
+uv run python tests/test_live.py            # live capture path
 uv run python training/train_dga_cnn.py        # train the DGA character CNN
-uv run python tests/test_dga_cnn.py         # 49 unit tests (CNN + backprop)
+uv run python tests/test_dga_cnn.py         # CNN + backprop checks
 uv run python run.py --dga-cnn        # pipeline + DGA CNN confirmer
 uv run python training/train_models_567.py     # train category 5-7 model bundle
 uv run python run.py --models-567 models567/manifest.json
 uv run python training/bench_dga.py            # external-corpus benchmark (~6 min)
 uv run python training/bench_dga.py --quick    # 20k subsample, ~40 s
-uv run python tests/test_bench_dga.py       # 31 unit tests (benchmark harness)
+uv run python tests/test_bench_dga.py       # benchmark harness
 uv run python tests/test_dashboard.py       # dashboard API + asset tests
 uv run python dashboard.py            # live dashboard on :8600
 uv run python run.py --metrics-port 9100   # + Prometheus /metrics
@@ -261,7 +284,6 @@ uv run python run.py --list-interfaces   # find the right interface name
 #   --duration S stop after S seconds of stream time
 #   --state P    JA4 inventory checkpoint (default nids_state.json)
 #   --no-state   disable persistence: cold start every run
-sudo setcap cap_net_raw,cap_net_admin+eip $(readlink -f .venv/bin/python)
 ```
 
 ## Live capture (Item 8)
@@ -271,13 +293,13 @@ libpcap binding, no new dependency). It emits the same 11-field packet tuple
 as `pcap_reader` and dissects with the same dpkt calls, so live and replay
 share one parser rather than two that drift.
 
-```
-data diode (one-way feed)
-   |
-   +-- offline:  pcap_reader.py  (dpkt / scapy)   \
-   +-- live:     live_source.py  (AF_PACKET raw)   >-- pipeline.StreamProcessor
-                                                      |  flows, windows,
-                                                      v  6 detectors, fusion
+```mermaid
+flowchart LR
+    Feed["One-way feed"] --> Offline["PCAP replay<br/>dpkt / Scapy"]
+    Feed --> Live["AF_PACKET / PCAP stream"]
+    Offline --> Pipeline["Shared StreamProcessor"]
+    Live --> Pipeline
+    Pipeline --> Detection["Flows / windows<br/>detectors / fusion"]
 ```
 
 Three things a file reader never needs and a live socket always does:
@@ -371,15 +393,18 @@ tokens plus XGBoost over TLS/QUIC metadata. Category 6 uses Random Forest and
 Isolation Forest over scan fan-out features. Category 7 uses XGBoost and
 Isolation Forest over transfer volume, baseline, and destination novelty.
 
-Train the bundle with `train_models_567.py`; it writes a JSON manifest, the
+Train the bundle with `training/train_models_567.py`; it writes a JSON manifest, the
 model artifacts, and a holdout evaluation under `models567/` (all shipped in
 the repo, so `--models-567` works out of the box). Serving is opt-in via
 `--models-567`; without the manifest, the original rules and existing ML tier
 continue unchanged. The trainer evaluates the temporal holdout and sweeps each
 model's threshold against benign traffic — the measured results are published
-in `docs/models-567.md`, and they are not uniformly good news: category 5 is
-genuinely strong, categories 6 and 7 are measured-but-not-deployable on this
-capture. Read that table before quoting the tier.
+in `docs/models-567.md`: `encrypted_xgb`, `sequence_cnn`, `scan_rf`, and
+`exfil_xgb` reached recall 1.000 with no benign false positives on the
+documented synthetic temporal holdout. Both Isolation Forest classifiers
+failed the benign false-positive budget. Their raw scores now attach only
+as supporting evidence to supervised alerts corroborated by a same-window
+rule; these results do not establish real-world generalization.
 
 **Family-held-out evaluation** (the protocol the deck's slide 11 claims, and
 the only honest one for a string model — a random split lets the same family
