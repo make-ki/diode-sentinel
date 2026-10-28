@@ -376,7 +376,7 @@ Passive monitoring keeps the detector off the production forwarding path. The fo
 | [Sensor monitoring](oneway-ids/docs/monitoring.md) | Optional Prometheus/Grafana stack and capture-health metrics |
 | [Latest handoff](oneway-ids/HANDOFF.md) | Implementation status and outstanding validation |
 | [Problem statement](oneway-ids/PS-26145.md) | SIH threat classes and unidirectional constraints |
-| [Presentation](Diode-Sentinel.pptx) · [presentation notes](oneway-ids/PRESENTATION.md) | Existing deck and supporting narrative |
+| [Presentation notes](oneway-ids/PRESENTATION.md) | Supporting project narrative |
 | [Video project](oneway-ids/diode-sentinel-launch/README.md) | Separate Remotion explainer project and media build |
 
 The repository layout and executable entry points remain as supplied. The sensor, dashboard, tests, model artifacts, and detailed documentation live under [`oneway-ids/`](oneway-ids/).
